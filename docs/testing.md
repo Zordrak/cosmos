@@ -29,12 +29,14 @@ Run `gradle --no-daemon :app:testDebugUnitTest`. All fixtures are synthetic: han
 | Test | Covers |
 | --- | --- |
 | `LicenceValidatorTest` | Fail-closed rights gate: every rejection reason, evidence binding, and provenance preservation |
-| `DjangoplicityParserTest` | Hubble- and Webb-style asset pages, renditions restricted to the site CDN, exception wording, missing notice or policy link, feed and listing discovery, policy statement changes, and entity decoding |
+| `DjangoplicityParserTest` | Hubble-, Webb-, ESO- and NOIRLab-style asset pages, optional credit, accepted types, renditions restricted to the site CDN, exception wording, missing notice or policy link, feed and listing discovery, policy statement changes, and entity decoding |
 | `ApprovedEndpointsTest` | HTTPS-only host allow-list, including lookalike hosts, user info, ports, and NASA hosts |
-| `CatalogueRefresherTest` | End-to-end admission with full provenance, and every rejection path: non-Observation, exception wording, missing notice, portrait, too small, dimension mismatch, no rendition, non-JPEG, too large, and unknown territory. Also covers the rejection retry window, policy-change withdrawal, offline retention, enabled sources, capacity limits, per-refresh caps, and concurrent removal |
-| `CatalogueStoreTest` | JSON round trip; rejection of unsafe file names and entries without provenance; persistence, removal and clearing; corrupt-file recovery |
-| `SlideshowTest` | No-repeat shuffle order, attribution text, and decode sample size |
-| `RefreshCoordinatorTest` | Refresh staleness rules |
+| `CatalogueRefresherTest` | End-to-end admission with full provenance, ESO and NOIRLab admission, personal-use admission without rights checks, 4K rendition selection (skip before download, fall through to full resolution, reuse cached files), the 4K-else-1080p fallback, retrying settings-dependent rejections, and every rejection path: unsuitable type, exception wording, missing notice, portrait, low resolution, dimension mismatch, no rendition, non-JPEG, too large, and unknown territory. Also covers the rejection retry window, policy-change withdrawal, offline retention, enabled sources, capacity limits, per-refresh caps, and concurrent removal |
+| `CatalogueStoreTest` | JSON round trip including the settings fingerprint and personal-use entries; rejection of unsafe file names and entries without provenance; persistence, removal and clearing; corrupt-file recovery |
+| `SlideshowTest` | No-repeat shuffle order and attribution text |
+| `PlacementTest` | Fill, Fit, Auto, Original and Stretch placement, aspect-ratio preservation, and decode sample size |
+| `ImageSelectionTest` | Personal-use and 4K defaults, quality tiers with tolerance, CC BY only filtering, 4K-else-1080p fallback, and settings fingerprints |
+| `RefreshCoordinatorTest` | Refresh staleness rules, including settings changes |
 | `ArtworkViewportTest`, `SyntheticArtworkGeometryTest`, `DreamSettingsLauncherTest` | Aspect-ratio fitting, the synthetic fixture, and the settings shortcut fallback |
 
 Tests do not contact live services. During development, the parser and the complete admission pipeline were also exercised once against the live ESA/Hubble and ESA/Webb sites in a temporary, uncommitted test (2026-11-09). Both policies matched. The pipeline admitted 4 Observation images with full credits and correctly rejected a Collage.
@@ -81,6 +83,13 @@ Still to check by hand, with the remote:
 5. With the network disconnected, the screensaver still plays cached images.
 6. Leave it running for several hours. Check memory and stability and confirm there are no crashes (`adb logcat -s CosmosDream CosmosSlideshow CosmosRefresh`).
 7. Upgrade from 0.1.0 to 0.2.0 using the same signing key, and confirm the screensaver selection is retained.
+
+### Version 0.3.0 — still to check by hand
+
+1. Open Cosmos. The settings screen is navigable with the D-pad: up and down move between rows, OK and left/right change values, and the status pane updates as images arrive.
+2. Preview with the defaults. Images fill the screen without distortion, and credits are small and translucent.
+3. Try each Picture fit and Credits option in Preview.
+4. Change the Picture quality and Licence filter settings, and confirm that a refresh starts.
 
 ## Remaining work
 

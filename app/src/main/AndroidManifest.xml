@@ -18,6 +18,7 @@
         android:banner="@drawable/cosmos_banner"
         android:icon="@drawable/cosmos_icon"
         android:label="@string/app_name"
+        android:largeHeap="true"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:theme="@style/AppTheme">

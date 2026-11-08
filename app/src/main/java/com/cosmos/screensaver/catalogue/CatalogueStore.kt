@@ -78,6 +78,7 @@ internal object CatalogueJson {
         root.put("lastAttemptAt", catalogue.lastAttemptAtEpochMillis)
         root.put("lastSuccessAt", catalogue.lastSuccessAtEpochMillis)
         root.put("lastSummary", catalogue.lastSummary)
+        root.put("selectionFingerprint", catalogue.selectionFingerprint)
         root.put("entries", JSONArray().apply { catalogue.entries.forEach { put(encodeEntry(it)) } })
         root.put("rejections", JSONObject().apply {
             catalogue.rejections.forEach { (key, value) ->
@@ -110,7 +111,8 @@ internal object CatalogueJson {
             rejections = rejections,
             lastAttemptAtEpochMillis = root.optLong("lastAttemptAt"),
             lastSuccessAtEpochMillis = root.optLong("lastSuccessAt"),
-            lastSummary = root.optString("lastSummary")
+            lastSummary = root.optString("lastSummary"),
+            selectionFingerprint = root.optString("selectionFingerprint")
         )
     }
 
@@ -162,7 +164,9 @@ internal object CatalogueJson {
         val fileName = json.getString("fileName")
         require(fileName.matches(Regex("^[0-9a-f]{64}\\.jpg$"))) { "Unexpected file name" }
         val credit = json.getString("credit")
-        require(credit.isNotBlank() && evidence.isNotEmpty())
+        val rightsBasis = json.getString("rightsBasis")
+        require(credit.isNotBlank())
+        require(evidence.isNotEmpty() || rightsBasis == CatalogueEntry.RIGHTS_NOT_CHECKED)
         return CatalogueEntry(
             provider = AssetProvider.valueOf(json.getString("provider")),
             providerId = json.getString("providerId"),
@@ -171,7 +175,7 @@ internal object CatalogueJson {
             sourcePageUrl = json.getString("sourcePageUrl"),
             assetUrl = json.getString("assetUrl"),
             credit = credit,
-            rightsBasis = json.getString("rightsBasis"),
+            rightsBasis = rightsBasis,
             licenceName = json.getString("licenceName"),
             licenceUrl = json.getString("licenceUrl"),
             territory = json.getString("territory"),

@@ -53,6 +53,56 @@ class DjangoplicityParserTest {
     }
 
     @Test
+    fun treatsAMissingCreditAsBlank() {
+        val page = DjangoplicityParser.assetPage(Fixtures.assetPage(hubble, "heic9901a", credit = null), hubble)!!
+
+        assertEquals("", page.credit)
+    }
+
+    @Test
+    fun parsesEsoAndNoirlabPagesWithTheirOwnPathsAndHosts() {
+        val eso = DjangoplicitySite.ESO
+        val noirlab = DjangoplicitySite.NOIRLAB
+        val esoPage = DjangoplicityParser.assetPage(Fixtures.assetPage(eso, "eso9901a", type = "Photographic"), eso)!!
+        val noirlabPage = DjangoplicityParser.assetPage(Fixtures.assetPage(noirlab, "noirlab9901a"), noirlab)!!
+
+        assertEquals("eso9901a", esoPage.id)
+        assertEquals("Photographic", esoPage.type)
+        assertEquals(4000, esoPage.widthPx)
+        assertEquals("https://cdn.eso.org/images/large/eso9901a.jpg", esoPage.renditions[Rendition.LARGE])
+        assertTrue(esoPage.linksUsagePolicy)
+        assertEquals(
+            "https://storage.noirlab.edu/media/archives/images/publicationjpg/noirlab9901a.jpg",
+            noirlabPage.renditions[Rendition.PUBLICATION]
+        )
+        assertTrue(noirlabPage.linksUsagePolicy)
+    }
+
+    @Test
+    fun discoversNoirlabIdsFromItsHttpFeedAndEsoListings() {
+        val noirlab = DjangoplicitySite.NOIRLAB
+        assertEquals(
+            listOf("noirlab9901a", "iotw9901a"),
+            DjangoplicityParser.discoveredIds(Fixtures.feed(noirlab, "noirlab9901a", "iotw9901a"), noirlab)
+        )
+        val eso = DjangoplicitySite.ESO
+        assertEquals(
+            listOf("eso9901a", "potw9901a"),
+            DjangoplicityParser.discoveredIds(Fixtures.listing(eso, "eso9901a", "potw9901a"), eso)
+        )
+    }
+
+    @Test
+    fun acceptsObservationsAndOnlyCuratedPhotographs() {
+        val eso = DjangoplicitySite.ESO
+        assertTrue(eso.acceptsType("Observation", "eso9901a"))
+        assertTrue(eso.acceptsType("Photographic", "potw9901a"))
+        assertFalse(eso.acceptsType("Photographic", "ann9901a"))
+        assertFalse(hubble.acceptsType("Photographic", "potw9901a"))
+        assertFalse(hubble.acceptsType("Artwork", "heic9901a"))
+    }
+
+    @Test
     fun detectsExceptionWordingInCaptionOrCredit() {
         val captioned = Fixtures.assetPage(hubble, "heic9901a", caption = "Image courtesy of a partner.")
         val credited = Fixtures.assetPage(hubble, "heic9901b", credit = "&copy; Example Observatory")
@@ -75,8 +125,6 @@ class DjangoplicityParserTest {
     @Test
     fun rejectsPagesWithoutRequiredParts() {
         assertNull(DjangoplicityParser.assetPage("<html><h1>Nothing</h1></html>", hubble))
-        val noCredit = Fixtures.assetPage(hubble, "heic9901a").replace("<div class=\"credit\">", "<div>")
-        assertNull(DjangoplicityParser.assetPage(noCredit, hubble))
         val badId = Fixtures.assetPage(hubble, "potw")
         assertNull(DjangoplicityParser.assetPage(badId, hubble))
     }
@@ -94,7 +142,7 @@ class DjangoplicityParserTest {
 
     @Test
     fun excludesNavigationPaths() {
-        listOf("archive", "potw", "top100", "viewall", "a", "Upper").forEach {
+        listOf("archive", "potw", "iotw", "comparisons", "top100", "viewall", "a", "Upper").forEach {
             assertFalse(it, DjangoplicityParser.isAssetId(it))
         }
         assertTrue(DjangoplicityParser.isAssetId("opo0501a"))

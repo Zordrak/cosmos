@@ -2,22 +2,71 @@
 <resources>
     <string name="app_name">Cosmos</string>
     <string name="dream_name">Cosmos</string>
-    <string name="home_title">Cosmos screensaver</string>
-    <string name="home_description">Cosmos shows ESA/Hubble and ESA/Webb space imagery as your TV screensaver. Each image is checked individually for a Creative Commons Attribution 4.0 licence before it is downloaded, and its full credit is shown on screen. To use it, open your TV\'s screensaver settings and select Cosmos.</string>
-    <string name="home_preview">Preview</string>
-    <string name="home_refresh">Refresh images now</string>
-    <string name="home_open_settings">Open screensaver settings</string>
+    <string name="home_tagline">Space imagery from ESA/Hubble, ESA/Webb, ESO and NOIRLab as your TV screensaver. Images are downloaded straight to this TV and shown from its local cache.</string>
     <string name="home_settings_unavailable">Unable to open screensaver settings automatically. Open them from your TV\'s system settings and select Cosmos.</string>
-    <string name="home_interval">Change image every %1$s</string>
-    <string name="home_source">%1$s: %2$s</string>
-    <string name="home_on">on</string>
-    <string name="home_off">off</string>
-    <string name="home_clear">Clear downloaded images</string>
-    <string name="home_clear_confirm">Press again to clear</string>
-    <string name="home_refreshing">Downloading and checking images…</string>
-    <string name="home_last_refresh">Last refresh %1$s: %2$s</string>
+    <string name="home_refreshing">Downloading images…</string>
+    <string name="home_last_refresh">Last refresh %1$s. %2$s</string>
     <string name="home_no_sources">All image sources are switched off.</string>
-    <string name="home_privacy">Cosmos connects only to esahubble.org and esawebb.org. It has no account, analytics, tracking or advertising, and everything it downloads stays on this TV. Images that do not clearly carry an applicable licence are skipped.</string>
+    <string name="home_privacy">No account, analytics, tracking or advertising. Cosmos connects only to the image sources listed here, and everything it downloads stays on this TV.</string>
+
+    <string name="section_screensaver">Screensaver</string>
+    <string name="section_display">Display</string>
+    <string name="section_images">Images</string>
+    <string name="section_sources">Sources</string>
+    <string name="section_library">Library</string>
+
+    <string name="row_preview">Preview</string>
+    <string name="row_preview_summary">Watch the slideshow now. Press any button to stop.</string>
+    <string name="row_set_screensaver">Set as screensaver</string>
+    <string name="row_set_screensaver_summary">Opens the TV\'s screensaver settings. Choose Cosmos there.</string>
+    <string name="row_fit">Picture fit</string>
+    <string name="row_interval">Change image every</string>
+    <string name="row_interval_summary">How long each image stays on screen.</string>
+    <string name="row_credits">Credits</string>
+    <string name="row_quality">Picture quality</string>
+    <string name="row_licence">Licence filter</string>
+    <string name="row_refresh">Refresh now</string>
+    <string name="row_refresh_summary">Checks the sources for new images. This also happens automatically.</string>
+    <string name="row_clear">Clear downloaded images</string>
+    <string name="row_clear_summary">Deletes the local image cache.</string>
+    <string name="row_clear_confirm">Press select again to delete every downloaded image.</string>
+
+    <string name="value_on">On</string>
+    <string name="value_off">Off</string>
+
+    <string name="fit_fill">Fill screen</string>
+    <string name="fit_fill_summary">Fills the screen without distortion, trimming edges that do not fit.</string>
+    <string name="fit_fit">Whole picture</string>
+    <string name="fit_fit_summary">Shows the entire picture without distortion, with black bars where needed.</string>
+    <string name="fit_auto">Auto</string>
+    <string name="fit_auto_summary">Fills the screen when little would be trimmed, otherwise shows the whole picture.</string>
+    <string name="fit_original">Original size</string>
+    <string name="fit_original_summary">One image pixel per screen pixel, centred. Large images are trimmed.</string>
+    <string name="fit_stretch">Stretch</string>
+    <string name="fit_stretch_summary">Fills the screen by stretching the picture. Distorts most images.</string>
+
+    <string name="credits_subtle">Subtle</string>
+    <string name="credits_subtle_summary">Small, translucent title and credit in a corner.</string>
+    <string name="credits_detailed">Detailed</string>
+    <string name="credits_detailed_summary">Title, credit, source and licence on a soft backing.</string>
+    <string name="credits_off_summary">No text over the images.</string>
+
+    <string name="quality_uhd">4K only</string>
+    <string name="quality_uhd_summary">Only images that cover a 4K screen without upscaling.</string>
+    <string name="quality_uhd_preferred">4K, else 1080p</string>
+    <string name="quality_uhd_preferred_summary">Prefers 4K images, adding 1080p ones while fewer than 20 4K images are available.</string>
+    <string name="quality_fhd">1080p or better</string>
+    <string name="quality_hd">720p or better</string>
+    <string name="quality_sd">480p or better</string>
+    <string name="quality_minimum_summary">Skips images too small to cover the screen at this resolution.</string>
+    <string name="quality_any">Any size</string>
+    <string name="quality_any_summary">Uses images of any resolution. Small ones will look soft.</string>
+
+    <string name="licence_any">Any public image</string>
+    <string name="licence_any_summary">For personal viewing: uses every publicly available image from the enabled sources.</string>
+    <string name="licence_open">Creative Commons only</string>
+    <string name="licence_open_summary">Only images individually verified as CC BY 4.0. Anything unclear is skipped.</string>
+
     <string name="slideshow_fetching">Fetching space imagery…</string>
     <string name="slideshow_empty">No images yet. Open Cosmos to download images.</string>
     <plurals name="home_image_count">

@@ -8,14 +8,17 @@ internal data class AssetPage(
     val type: String,
     val widthPx: Int?,
     val heightPx: Int?,
+    /** The mandatory credit line, or blank if the page has none. */
     val credit: String,
-    /** Download candidates in order of preference; all are on the site's CDN. */
-    val imageUrls: List<String>,
+    /** Renditions offered by the page; all are on the site's CDN. */
+    val renditions: Map<Rendition, String>,
     val linksUsagePolicy: Boolean,
     val statesMandatoryCredit: Boolean,
     /** Wording in the title, caption or credit suggesting the general licence may not apply. */
     val exceptionMarkers: List<String>
-)
+) {
+    val imageUrls: List<String> get() = Rendition.entries.mapNotNull(renditions::get)
+}
 
 internal object DjangoplicityParser {
     const val MANDATORY_CREDIT_NOTICE =
@@ -24,7 +27,8 @@ internal object DjangoplicityParser {
 
     private val ID_PATTERN = Regex("^[a-z0-9][a-z0-9_-]{2,63}$")
     private val NON_ASSET_PATHS = setOf(
-        "archive", "viewall", "search", "potw", "potm", "zip", "feed", "top100", "page", "list"
+        "archive", "viewall", "search", "potw", "potm", "iotw", "zip", "feed", "top100", "page", "list",
+        "comparisons", "news", "category"
     )
     private val EXCEPTION_MARKERS = listOf(
         "\u00a9", "copyright", "all rights reserved", "permission", "courtesy", "not licensed",
@@ -32,7 +36,7 @@ internal object DjangoplicityParser {
     )
 
     fun listingIds(html: String, site: DjangoplicitySite): List<String> =
-        Regex("""href="(?:https://(?:www\.)?${Regex.escape(site.host)})?/images/([a-z0-9_-]+)/"""")
+        Regex("""href="(?:https?://(?:www\.)?${Regex.escape(site.domain)})?${Regex.escape(site.pagePath)}([a-z0-9_-]+)/"""")
             .findAll(html)
             .map { it.groupValues[1] }
             .filter(::isAssetId)
@@ -40,7 +44,7 @@ internal object DjangoplicityParser {
             .toList()
 
     fun feedIds(xml: String, site: DjangoplicitySite): List<String> =
-        Regex("""<link>\s*https://(?:www\.)?${Regex.escape(site.host)}/images/([a-z0-9_-]+)/\s*</link>""")
+        Regex("""<link>\s*https?://(?:www\.)?${Regex.escape(site.domain)}${Regex.escape(site.pagePath)}([a-z0-9_-]+)/\s*</link>""")
             .findAll(xml)
             .map { it.groupValues[1] }
             .filter(::isAssetId)
@@ -65,24 +69,23 @@ internal object DjangoplicityParser {
         val titleMatch = Regex("""<h1[^>]*>([\s\S]*?)</h1>""").find(html) ?: return null
         val titleHtml = titleMatch.groupValues[1]
         val title = HtmlText.toPlainText(titleHtml).takeIf { it.isNotBlank() } ?: return null
-        val creditMatch = Regex("""<div class="credit">([\s\S]*?)</div>""").find(html) ?: return null
-        val credit = HtmlText.toPlainText(creditMatch.groupValues[1]).takeIf { it.isNotBlank() } ?: return null
+        val creditMatch = Regex("""<div class="credit">([\s\S]*?)</div>""").find(html)
+        val credit = creditMatch?.let { HtmlText.toPlainText(it.groupValues[1]) }.orEmpty()
 
         val size = field(html, "Size")?.let { Regex("""(\d+)\s*x\s*(\d+)\s*px""").find(it) }
         val width = size?.groupValues?.get(1)?.toIntOrNull()
         val height = size?.groupValues?.get(2)?.toIntOrNull()
 
-        val cdn = Regex.escape(site.cdnHost)
-        val escapedId = Regex.escape(id)
-        val imageUrls = listOf("publicationjpg", "large").mapNotNull { rendition ->
-            Regex("""https://$cdn/archives/images/$rendition/$escapedId\.jpg""").find(html)?.value
-        }
+        val renditions = Rendition.entries.mapNotNull { rendition ->
+            val url = site.renditionUrl(rendition, id)
+            if (html.contains(url)) rendition to url else null
+        }.toMap()
 
         val titleStart = titleMatch.range.first
-        val captionAndCredit = if (titleStart < creditMatch.range.first) {
-            html.substring(titleStart, creditMatch.range.last + 1)
-        } else {
-            titleMatch.value + creditMatch.value
+        val captionAndCredit = when {
+            creditMatch == null -> titleMatch.value
+            titleStart < creditMatch.range.first -> html.substring(titleStart, creditMatch.range.last + 1)
+            else -> titleMatch.value + creditMatch.value
         }
         val scanned = HtmlText.toPlainText(captionAndCredit).lowercase(Locale.ROOT)
         val markers = EXCEPTION_MARKERS.filter { scanned.contains(it) }
@@ -94,9 +97,9 @@ internal object DjangoplicityParser {
             widthPx = width,
             heightPx = height,
             credit = credit,
-            imageUrls = imageUrls,
-            linksUsagePolicy = html.contains("href=\"/copyright/\"") ||
-                html.contains("href=\"https://${site.host}/copyright/\""),
+            renditions = renditions,
+            linksUsagePolicy = html.contains("href=\"${site.policyPath}\"") ||
+                html.contains("href=\"${site.policyUrl}\""),
             statesMandatoryCredit = HtmlText.normalizeWhitespace(HtmlText.decodeEntities(html))
                 .contains(MANDATORY_CREDIT_NOTICE),
             exceptionMarkers = markers
@@ -104,10 +107,10 @@ internal object DjangoplicityParser {
     }
 
     private fun field(html: String, label: String): String? =
-        Regex("""<th[^>]*>\s*${Regex.escape(label)}:\s*</th>\s*<td[^>]*>([\s\S]*?)</td>""")
+        Regex("""<t([hd])[^>]*>\s*${Regex.escape(label)}:\s*</t\1>\s*<td[^>]*>([\s\S]*?)</td>""")
             .find(html)
             ?.groupValues
-            ?.get(1)
+            ?.get(2)
             ?.let(HtmlText::toPlainText)
             ?.takeIf { it.isNotBlank() }
 }

@@ -7,8 +7,9 @@ import android.os.Looper
 import android.util.Log
 import com.cosmos.screensaver.catalogue.Catalogue
 import com.cosmos.screensaver.catalogue.CatalogueStore
-import com.cosmos.screensaver.rights.LicenceValidator
+import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.settings.CosmosSettings
+import com.cosmos.screensaver.settings.ImageSelection
 import com.cosmos.screensaver.source.HttpsFetcher
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -31,24 +32,40 @@ internal object RefreshCoordinator {
         }
     }
     private val running = AtomicBoolean(false)
+    private val rerunRequested = AtomicBoolean(false)
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     val isRunning: Boolean get() = running.get()
 
     fun store(context: Context) = CatalogueStore(context.applicationContext.filesDir)
 
-    internal fun isStale(catalogue: Catalogue, now: Long): Boolean {
+    /**
+     * A refresh is due when the image settings changed, after [STALE_AFTER_MILLIS], or after
+     * [EMPTY_RETRY_AFTER_MILLIS] while nothing in the library can be shown with the current
+     * settings and [enabledProviders].
+     */
+    internal fun isStale(
+        catalogue: Catalogue,
+        now: Long,
+        selection: ImageSelection,
+        enabledProviders: Set<AssetProvider>
+    ): Boolean {
         val sinceAttempt = now - catalogue.lastAttemptAtEpochMillis
         if (sinceAttempt < 0) return true
-        if (catalogue.entries.any { it.policyVersion != LicenceValidator.POLICY_VERSION }) return true
-        return if (catalogue.entries.isEmpty()) {
+        if (catalogue.selectionFingerprint != selection.fingerprint) return true
+        val showable = selection.eligible(catalogue.entries.filter { it.provider in enabledProviders })
+        return if (showable.isEmpty()) {
             sinceAttempt >= EMPTY_RETRY_AFTER_MILLIS
         } else {
             sinceAttempt >= STALE_AFTER_MILLIS
         }
     }
 
-    /** Starts a refresh if one is due (or [force] is set). Returns false if nothing was started. */
+    /**
+     * Starts a refresh if one is due (or [force] is set). Returns false if nothing was started.
+     * A forced request made while a refresh is running queues one more run, so settings changed
+     * mid-refresh are always applied.
+     */
     fun requestRefresh(
         context: Context,
         force: Boolean = false,
@@ -56,35 +73,55 @@ internal object RefreshCoordinator {
     ): Boolean {
         val appContext = context.applicationContext
         val store = store(appContext)
-        if (!force && !isStale(store.load(), System.currentTimeMillis())) return false
-        if (!running.compareAndSet(false, true)) return false
+        val settings = CosmosSettings(appContext)
+        val enabledProviders = settings.enabledSites.map { it.provider }.toSet()
+        if (!force && !isStale(store.load(), System.currentTimeMillis(), settings.selection, enabledProviders)) return false
+        if (!running.compareAndSet(false, true)) {
+            if (!force) return false
+            rerunRequested.set(true)
+            // The running refresh may have finished before seeing the request; if so, run it here.
+            if (!running.compareAndSet(false, true)) return false
+        }
 
         executor.execute {
-            val result = try {
-                CatalogueRefresher(
-                    fetcher = HttpsFetcher(userAgent(appContext)),
-                    store = store,
-                    inspector = ::inspectJpeg,
-                    territory = deviceTerritory(),
-                    sites = CosmosSettings(appContext).enabledSites
-                ).refresh().also { Log.i(TAG, it.summary) }
-            } catch (error: Exception) {
-                Log.e(TAG, "Refresh failed", error)
-                runCatching {
-                    store.update {
-                        it.copy(
-                            lastAttemptAtEpochMillis = System.currentTimeMillis(),
-                            lastSummary = "Refresh failed: ${error.message ?: error.javaClass.simpleName}"
-                        )
-                    }
-                }
-                null
-            } finally {
+            var result: RefreshResult?
+            while (true) {
+                do {
+                    rerunRequested.set(false)
+                    result = runOnce(appContext, store)
+                } while (rerunRequested.get())
                 running.set(false)
+                // A request may have arrived between the last check and releasing the flag.
+                if (!rerunRequested.get() || !running.compareAndSet(false, true)) break
             }
             if (onFinished != null) mainHandler.post { onFinished(result) }
         }
         return true
+    }
+
+    private fun runOnce(appContext: Context, store: CatalogueStore): RefreshResult? {
+        val settings = CosmosSettings(appContext)
+        return try {
+            CatalogueRefresher(
+                fetcher = HttpsFetcher(userAgent(appContext)),
+                store = store,
+                inspector = ::inspectJpeg,
+                territory = deviceTerritory(),
+                sites = settings.enabledSites,
+                selection = settings.selection
+            ).refresh().also { Log.i(TAG, it.summary) }
+        } catch (error: Exception) {
+            Log.e(TAG, "Refresh failed", error)
+            runCatching {
+                store.update {
+                    it.copy(
+                        lastAttemptAtEpochMillis = System.currentTimeMillis(),
+                        lastSummary = "Refresh failed: ${error.message ?: error.javaClass.simpleName}"
+                    )
+                }
+            }
+            null
+        }
     }
 
     private fun deviceTerritory(): String? =

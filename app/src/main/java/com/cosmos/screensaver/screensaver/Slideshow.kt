@@ -33,19 +33,11 @@ internal data class Attribution(
         fun of(entry: CatalogueEntry) = Attribution(
             title = entry.title,
             credit = "Credit: ${entry.credit}",
-            source = "${entry.sourceLabel}  \u00b7  ${entry.licenceName}  \u00b7  ${displayUrl(entry.sourcePageUrl)}"
+            source = listOf(entry.sourceLabel, entry.licenceName, displayUrl(entry.sourcePageUrl))
+                .filter { it.isNotBlank() }
+                .joinToString("  \u00b7  ")
         )
 
         fun displayUrl(url: String) = url.removePrefix("https://").removeSuffix("/")
     }
-}
-
-/** Largest power-of-two sample size that still leaves at least the fitted on-screen resolution. */
-internal fun sampleSizeFor(imageWidth: Int, imageHeight: Int, targetWidth: Int, targetHeight: Int): Int {
-    if (imageWidth <= 0 || imageHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) return 1
-    val scale = minOf(targetWidth.toDouble() / imageWidth, targetHeight.toDouble() / imageHeight)
-    if (scale >= 1.0) return 1
-    var sample = 1
-    while (sample * 2 <= 1.0 / scale) sample *= 2
-    return sample
 }

@@ -4,10 +4,14 @@ import com.cosmos.screensaver.catalogue.CatalogueEntry
 import com.cosmos.screensaver.catalogue.CatalogueStore
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.rights.LicenceValidator
+import com.cosmos.screensaver.settings.ImageSelection
+import com.cosmos.screensaver.settings.LicenceMode
+import com.cosmos.screensaver.settings.QualityPreference
 import com.cosmos.screensaver.source.Download
 import com.cosmos.screensaver.source.DjangoplicitySite
 import com.cosmos.screensaver.source.Fetcher
 import com.cosmos.screensaver.source.Fixtures
+import com.cosmos.screensaver.source.Rendition
 import com.cosmos.screensaver.source.ResourceTooLargeException
 import com.cosmos.screensaver.source.sha256Of
 import org.junit.After
@@ -24,6 +28,12 @@ import kotlin.random.Random
 class CatalogueRefresherTest {
     private val hubble = DjangoplicitySite.HUBBLE
     private val webb = DjangoplicitySite.WEBB
+    private val eso = DjangoplicitySite.ESO
+    private val noirlab = DjangoplicitySite.NOIRLAB
+
+    /** Licence checking on, as for a published build. Most rights tests use this. */
+    private val licensed = ImageSelection(LicenceMode.OPEN_LICENCE_ONLY, QualityPreference.FHD_OR_BETTER)
+    private val personal = ImageSelection(LicenceMode.ANY_AVAILABLE, QualityPreference.UHD_ONLY)
     private lateinit var directory: File
     private lateinit var store: CatalogueStore
     private lateinit var fetcher: FakeFetcher
@@ -38,7 +48,7 @@ class CatalogueRefresherTest {
         DjangoplicitySite.entries.forEach { site ->
             fetcher.documents[site.policyUrl] = Fixtures.policyPage(site)
             fetcher.documents[site.discoveryUrls[0]] = Fixtures.feed(site)
-            fetcher.documents[site.discoveryUrls[1]] = Fixtures.listing()
+            fetcher.documents[site.discoveryUrls[1]] = Fixtures.listing(site)
         }
     }
 
@@ -94,11 +104,11 @@ class CatalogueRefresherTest {
         assertEquals(0, result.admitted)
         assertEquals(
             mapOf(
-                "ESA_HUBBLE:heic9901a" to "NOT_AN_OBSERVATION",
+                "ESA_HUBBLE:heic9901a" to "UNSUITABLE_TYPE",
                 "ESA_HUBBLE:heic9902a" to "RIGHTS_CONFLICTING_EVIDENCE",
                 "ESA_HUBBLE:heic9903a" to "RIGHTS_MISSING_RIGHTS_STATEMENT",
                 "ESA_HUBBLE:heic9904a" to "NOT_LANDSCAPE",
-                "ESA_HUBBLE:heic9905a" to "IMAGE_TOO_SMALL",
+                "ESA_HUBBLE:heic9905a" to "LOW_RESOLUTION",
                 "ESA_HUBBLE:heic9906a" to "DIMENSION_MISMATCH",
                 "ESA_HUBBLE:heic9907a" to "NO_SUITABLE_RENDITION",
                 "ESA_HUBBLE:heic9908a" to "NOT_A_JPEG",
@@ -245,9 +255,126 @@ class CatalogueRefresherTest {
         assertEquals(2, store.load().entries.size)
     }
 
+    @Test
+    fun admitsEsoAndNoirlabImagesWithVerifiedRights() {
+        publish(eso, "eso9901a")
+        publish(noirlab, "noirlab9901a")
+
+        refresher(sites = setOf(eso, noirlab)).refresh()
+
+        val entries = store.load().entries.associateBy { it.provider }
+        assertEquals("https://cdn.eso.org/images/publicationjpg/eso9901a.jpg", entries.getValue(AssetProvider.ESO).assetUrl)
+        assertEquals(
+            "https://storage.noirlab.edu/media/archives/images/publicationjpg/noirlab9901a.jpg",
+            entries.getValue(AssetProvider.NOIRLAB).assetUrl
+        )
+        assertTrue(entries.values.all { it.rightsBasis == "CC_BY_4_0" })
+    }
+
+    @Test
+    fun personalUseAdmitsPublicImagesWithoutCheckingRights() {
+        publish(hubble, "heic9901a", caption = "Image courtesy of a partner.", creditNotice = false, credit = null)
+        fetcher.documents[hubble.policyUrl] = Fixtures.policyPage(hubble, "All rights reserved.")
+
+        refresher(selection = personal).refresh()
+
+        val entry = store.load().entries.single()
+        assertEquals(CatalogueEntry.RIGHTS_NOT_CHECKED, entry.rightsBasis)
+        assertEquals("ESA/Hubble", entry.credit)
+        assertEquals("", entry.licenceName)
+        assertEquals(emptyList<Any>(), entry.evidence)
+        assertFalse(hubble.policyUrl in fetcher.requests)
+    }
+
+    @Test
+    fun personalUseStillSkipsNonImagery() {
+        publish(hubble, "heic9901a", type = "Chart")
+
+        refresher(selection = personal).refresh()
+
+        assertEquals("UNSUITABLE_TYPE", store.load().rejections.values.single().reason)
+    }
+
+    @Test
+    fun skipsLowResolutionImagesWithoutDownloadingThem() {
+        publish(hubble, "heic9901a", width = 1920, height = 1080)
+
+        refresher(selection = personal).refresh()
+
+        assertEquals("LOW_RESOLUTION", store.load().rejections.values.single().reason)
+        assertTrue(fetcher.requests.none { it.contains("cdn.") })
+    }
+
+    @Test
+    fun downloadsTheFullSizeRenditionWhenThePublicationCopyIsTooSmallFor4k() {
+        publish(hubble, "heic9901a", width = 8000, height = 3600, large = ImageDimensions(8000, 3600))
+
+        refresher(selection = personal).refresh()
+
+        val entry = store.load().entries.single()
+        assertEquals(hubble.renditionUrl(Rendition.LARGE, "heic9901a"), entry.assetUrl)
+        assertEquals(8000, entry.widthPx)
+        assertFalse(hubble.renditionUrl(Rendition.PUBLICATION, "heic9901a") in fetcher.requests)
+    }
+
+    @Test
+    fun triesTheFullSizeRenditionWhenTheDownloadedCopyIsSmallerThanDeclared() {
+        publish(
+            hubble, "heic9901a",
+            actual = ImageDimensions(3000, 1688),
+            large = ImageDimensions(4000, 2250)
+        )
+
+        refresher(selection = personal).refresh()
+
+        assertEquals(hubble.renditionUrl(Rendition.LARGE, "heic9901a"), store.load().entries.single().assetUrl)
+        assertEquals(1, store.imagesDirectory.list()!!.size)
+    }
+
+    @Test
+    fun preferred4kFallsBackTo1080pOnlyWhileFew4kImagesExist() {
+        publish(hubble, "heic9901a")
+        publish(hubble, "heic9902a", width = 1920, height = 1080)
+        val selection = ImageSelection(LicenceMode.ANY_AVAILABLE, QualityPreference.UHD_PREFERRED)
+
+        refresher(selection = selection).refresh()
+
+        assertEquals(2, store.load().entries.size)
+        assertEquals(2, selection.eligible(store.load().entries).size)
+    }
+
+    @Test
+    fun retriesSettingsDependentRejectionsWhenSettingsChange() {
+        publish(hubble, "heic9901a", width = 1920, height = 1080)
+        publish(hubble, "heic9902a", width = 2000, height = 3000)
+        refresher(selection = personal).refresh()
+        assertEquals(2, store.load().rejections.size)
+
+        refresher(selection = personal.copy(quality = QualityPreference.FHD_OR_BETTER)).refresh()
+
+        assertEquals(listOf("ESA_HUBBLE:heic9901a"), store.load().entries.map { it.key })
+        assertEquals(mapOf("ESA_HUBBLE:heic9902a" to "NOT_LANDSCAPE"), store.load().rejections.mapValues { it.value.reason })
+    }
+
+    @Test
+    fun revalidatesPersonalUseImagesWithoutDownloadingThemAgain() {
+        publish(hubble, "heic9901a")
+        refresher(selection = personal).refresh()
+
+        refresher(selection = licensed).refresh()
+
+        val entries = store.load().entries
+        assertEquals(1, entries.size)
+        assertEquals("CC_BY_4_0", entries.single().rightsBasis)
+        assertEquals(1, store.imagesDirectory.list()!!.size)
+        assertEquals(listOf(hubble.renditionUrl(Rendition.PUBLICATION, "heic9901a")),
+            fetcher.requests.filter { it.contains("cdn.") })
+    }
+
     private fun refresher(
         territory: String? = "GB",
         sites: Set<DjangoplicitySite> = DjangoplicitySite.entries.toSet(),
+        selection: ImageSelection = licensed,
         limits: CatalogueRefresher.Limits = CatalogueRefresher.Limits(),
         inspector: ImageInspector = ImageInspector { dimensions[String(it.readBytes(), Charsets.ISO_8859_1).substring(3)] }
     ) = CatalogueRefresher(
@@ -256,6 +383,7 @@ class CatalogueRefresherTest {
         inspector = inspector,
         territory = territory,
         sites = sites,
+        selection = selection,
         clock = { now },
         random = Random(7),
         limits = limits
@@ -272,7 +400,9 @@ class CatalogueRefresherTest {
         creditNotice: Boolean = true,
         renditions: List<String> = listOf("publicationjpg", "large"),
         notJpeg: Boolean = false,
-        tooLarge: Boolean = false
+        tooLarge: Boolean = false,
+        credit: String? = "ESA/Synthetic &amp; Example Team",
+        large: ImageDimensions? = null
     ) {
         val feedUrl = site.discoveryUrls[0]
         val ids = Regex("""/images/([a-z0-9]+)/</link>""").findAll(fetcher.documents[feedUrl]!!)
@@ -280,13 +410,17 @@ class CatalogueRefresherTest {
         fetcher.documents[feedUrl] = Fixtures.feed(site, *ids.toTypedArray())
         fetcher.documents[site.pageUrl(id)] = Fixtures.assetPage(
             site, id, type = type, width = width, height = height, caption = caption,
-            creditNotice = creditNotice, renditions = renditions
+            creditNotice = creditNotice, renditions = renditions, credit = credit
         )
-        val url = "https://${site.cdnHost}/archives/images/publicationjpg/$id.jpg"
+        val url = site.renditionUrl(Rendition.PUBLICATION, id)
         val magic = if (notJpeg) "PNG" else "\u00ff\u00d8\u00ff"
         fetcher.images[url] = (magic + id).toByteArray(Charsets.ISO_8859_1)
         if (tooLarge) fetcher.tooLarge += url
         dimensions[id] = actual
+        if (large != null) {
+            fetcher.images[site.renditionUrl(Rendition.LARGE, id)] = (magic + "$id-large").toByteArray(Charsets.ISO_8859_1)
+            dimensions["$id-large"] = large
+        }
     }
 
     private class FakeFetcher : Fetcher {

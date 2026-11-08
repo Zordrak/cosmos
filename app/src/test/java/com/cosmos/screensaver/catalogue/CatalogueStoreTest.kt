@@ -13,7 +13,8 @@ class CatalogueStoreTest {
             rejections = mapOf("ESA_HUBBLE:heic9903a" to RejectionRecord("NOT_AN_OBSERVATION", 5L)),
             lastAttemptAtEpochMillis = 10L,
             lastSuccessAtEpochMillis = 9L,
-            lastSummary = "2 images available."
+            lastSummary = "2 images available.",
+            selectionFingerprint = "licence=ANY_AVAILABLE;quality=UHD_ONLY"
         )
 
         assertEquals(catalogue, CatalogueJson.decode(CatalogueJson.encode(catalogue)))
@@ -31,6 +32,21 @@ class CatalogueStoreTest {
         )
 
         assertEquals(listOf("heic9901a"), CatalogueJson.decode(CatalogueJson.encode(catalogue)).entries.map { it.providerId })
+    }
+
+    @Test
+    fun keepsPersonalUseEntriesWithoutRightsEvidence() {
+        val personal = entry("heic9901a").copy(
+            rightsBasis = CatalogueEntry.RIGHTS_NOT_CHECKED,
+            licenceName = "",
+            licenceUrl = "",
+            territory = "",
+            policyVersion = "",
+            evidence = emptyList()
+        )
+        val catalogue = Catalogue(entries = listOf(personal))
+
+        assertEquals(catalogue, CatalogueJson.decode(CatalogueJson.encode(catalogue)))
     }
 
     @Test

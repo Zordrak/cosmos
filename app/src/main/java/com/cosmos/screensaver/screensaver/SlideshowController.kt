@@ -3,21 +3,27 @@ package com.cosmos.screensaver.screensaver
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.util.Log
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.catalogue.CatalogueEntry
-import com.cosmos.screensaver.rights.LicenceValidator
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.source.sha256Of
 import com.cosmos.screensaver.sync.RefreshCoordinator
+import java.io.File
 import java.io.IOException
 
 /**
  * Drives a [SlideshowView] from the local catalogue. Decoding and integrity checks run on a
  * background thread; a cached image is shown only if its SHA-256 still matches the catalogue.
+ * Each image is decoded already cropped and scaled for the screen and the chosen display mode.
  */
 internal class SlideshowController(
     private val context: Context,
@@ -33,6 +39,7 @@ internal class SlideshowController(
 
     fun start() {
         if (worker != null) return
+        view.captionMode = settings.captionMode
         val thread = HandlerThread("cosmos-slideshow").also { it.start() }
         worker = thread
         workerHandler = Handler(thread.looper).also { it.post(::advance) }
@@ -69,22 +76,20 @@ internal class SlideshowController(
     private fun showNextImage(): Boolean {
         repeat(MAX_ATTEMPTS) {
             val enabled = settings.enabledSites.map { it.provider }.toSet()
-            val entries = store.load().entries.filter {
-                it.provider in enabled && it.policyVersion == LicenceValidator.POLICY_VERSION
-            }
+            val entries = settings.selection.eligible(store.load().entries.filter { it.provider in enabled })
             val key = order.next(entries.map { it.key }) ?: return false
             val entry = entries.first { it.key == key }
-            val bitmap = loadVerified(entry)
-            if (bitmap != null) {
+            val frame = loadVerified(entry)
+            if (frame != null) {
                 val attribution = Attribution.of(entry)
-                mainHandler.post { view.show(bitmap, attribution) }
+                mainHandler.post { view.show(frame, attribution) }
                 return true
             }
         }
         return false
     }
 
-    private fun loadVerified(entry: CatalogueEntry): Bitmap? {
+    private fun loadVerified(entry: CatalogueEntry): Frame? {
         val file = store.imageFile(entry)
         val intact = try {
             file.isFile && sha256Of(file) == entry.sha256
@@ -97,19 +102,81 @@ internal class SlideshowController(
             store.remove(entry.key)
             return null
         }
-        val metrics = context.resources.displayMetrics
-        val targetWidth = minOf(maxOf(view.width, metrics.widthPixels), MAX_DECODE_WIDTH)
-        val targetHeight = minOf(maxOf(view.height, metrics.heightPixels), MAX_DECODE_HEIGHT)
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sampleSizeFor(entry.widthPx, entry.heightPx, targetWidth, targetHeight)
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
+        val (screenWidth, screenHeight) = screenSize()
+        val place = placement(
+            settings.displayMode, entry.widthPx, entry.heightPx, screenWidth, screenHeight, physicalWidth(screenWidth)
+        )
         return try {
-            BitmapFactory.decodeFile(file.absolutePath, options)
+            decode(file, place)?.let { Frame(it, place.destination) }
         } catch (error: OutOfMemoryError) {
             Log.w(TAG, "Not enough memory to decode ${entry.key}", error)
             null
         }
+    }
+
+    private fun screenSize(): Pair<Int, Int> {
+        val metrics = context.resources.displayMetrics
+        val width = view.width.takeIf { it > 0 } ?: metrics.widthPixels
+        val height = view.height.takeIf { it > 0 } ?: metrics.heightPixels
+        return width.coerceIn(1, MAX_FRAME_EDGE) to height.coerceIn(1, MAX_FRAME_EDGE)
+    }
+
+    private fun physicalWidth(fallback: Int): Int =
+        view.display?.mode?.let { maxOf(it.physicalWidth, it.physicalHeight) } ?: fallback
+
+    /** Decodes only the visible region, subsampled, then scales it exactly to its destination. */
+    private fun decode(file: File, place: Placement): Bitmap? {
+        val source = place.source
+        val target = place.destination
+        val sample = sampleSizeFor(source.width, source.height, target.width, target.height)
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val region = Rect(source.left, source.top, source.right, source.bottom)
+        val decoded = decodeRegion(file, region, options) ?: decodeWhole(file, region, sample) ?: return null
+        if (decoded.width == target.width && decoded.height == target.height) return decoded
+        return Bitmap.createScaledBitmap(decoded, target.width, target.height, true).also {
+            if (it !== decoded) decoded.recycle()
+        }
+    }
+
+    private fun decodeRegion(file: File, region: Rect, options: BitmapFactory.Options): Bitmap? = try {
+        val decoder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            BitmapRegionDecoder.newInstance(file.absolutePath)
+        } else {
+            @Suppress("DEPRECATION")
+            BitmapRegionDecoder.newInstance(file.absolutePath, false)
+        }
+        try {
+            decoder?.decodeRegion(region, options)
+        } finally {
+            decoder?.recycle()
+        }
+    } catch (error: IOException) {
+        Log.w(TAG, "Region decoding unavailable for ${file.name}", error)
+        null
+    } catch (error: IllegalArgumentException) {
+        Log.w(TAG, "Region decoding failed for ${file.name}", error)
+        null
+    }
+
+    /** Fallback for files the region decoder cannot read: decode subsampled, then crop. */
+    private fun decodeWhole(file: File, region: Rect, sample: Int): Bitmap? {
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val whole = BitmapFactory.decodeFile(file.absolutePath, options) ?: return null
+        val crop = Rect(region.left / sample, region.top / sample, region.right / sample, region.bottom / sample)
+        if (!crop.intersect(0, 0, whole.width, whole.height) || crop.isEmpty) {
+            whole.recycle()
+            return null
+        }
+        val cropped = Bitmap.createBitmap(crop.width(), crop.height(), Bitmap.Config.ARGB_8888)
+        Canvas(cropped).drawBitmap(whole, crop, Rect(0, 0, crop.width(), crop.height()), Paint(Paint.FILTER_BITMAP_FLAG))
+        whole.recycle()
+        return cropped
     }
 
     companion object {
@@ -117,8 +184,10 @@ internal class SlideshowController(
         private const val MAX_ATTEMPTS = 3
         private const val EMPTY_RETRY_MILLIS = 20_000L
 
-        // Bounds bitmap memory (two slides are held during a cross-fade) on 4K panels.
-        private const val MAX_DECODE_WIDTH = 2560
-        private const val MAX_DECODE_HEIGHT = 1440
+        // Two frames are held during a cross-fade; keep each within GPU texture limits.
+        private const val MAX_FRAME_EDGE = 4096
     }
 }
+
+/** A decoded image ready to draw at [destination] in view pixels. */
+internal class Frame(val bitmap: Bitmap, val destination: IntBox)

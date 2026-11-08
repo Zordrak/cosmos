@@ -1,5 +1,6 @@
 package com.cosmos.screensaver.rights
 
+import com.cosmos.screensaver.source.DjangoplicitySite
 import java.net.URI
 import java.net.URISyntaxException
 import java.util.Collections
@@ -8,7 +9,9 @@ import java.util.Locale
 internal enum class AssetProvider {
     NASA,
     ESA_HUBBLE,
-    ESA_WEBB
+    ESA_WEBB,
+    ESO,
+    NOIRLAB
 }
 
 internal enum class RightsUseScope {
@@ -60,6 +63,8 @@ internal enum class RightsOwner {
     NASA_FEDERAL_GOVERNMENT_WORK,
     ESA_HUBBLE,
     ESA_WEBB,
+    ESO,
+    NOIRLAB,
     OTHER,
     UNKNOWN
 }
@@ -235,7 +240,7 @@ internal class LicenceValidator(
                 }
                 if (evidence.licenceUrl != null) return reject(RightsRejection.CONFLICTING_EVIDENCE)
             }
-            AssetProvider.ESA_HUBBLE, AssetProvider.ESA_WEBB -> {
+            AssetProvider.ESA_HUBBLE, AssetProvider.ESA_WEBB, AssetProvider.ESO, AssetProvider.NOIRLAB -> {
                 if (evidence.basis != RightsBasis.CC_BY_4_0) {
                     return reject(RightsRejection.UNSUPPORTED_RIGHTS_BASIS)
                 }
@@ -283,8 +288,7 @@ internal class LicenceValidator(
         val path = uri.rawPath
         val approvedHost = when (provider) {
             AssetProvider.NASA -> host == "nasa.gov" || host.endsWith(".nasa.gov")
-            AssetProvider.ESA_HUBBLE -> host in ESA_HUBBLE_HOSTS
-            AssetProvider.ESA_WEBB -> host in ESA_WEBB_HOSTS
+            else -> DjangoplicitySite.forProvider(provider)?.hosts?.contains(host) == true
         }
         return uri.scheme.equals("https", ignoreCase = true) &&
             uri.rawUserInfo == null &&
@@ -297,8 +301,6 @@ internal class LicenceValidator(
     companion object {
         const val POLICY_VERSION = "3"
         const val CC_BY_4_0_URL = "https://creativecommons.org/licenses/by/4.0/"
-        private val ESA_HUBBLE_HOSTS = setOf("esahubble.org", "www.esahubble.org", "cdn.esahubble.org")
-        private val ESA_WEBB_HOSTS = setOf("esawebb.org", "www.esawebb.org", "cdn.esawebb.org")
         private val ISO_TERRITORIES = Locale.getISOCountries().toSet()
     }
 }

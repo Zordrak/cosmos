@@ -11,9 +11,9 @@ internal data class VerifiedPolicy(
 )
 
 /**
- * Verifies ESA/Hubble or ESA/Webb rights from freshly retrieved pages.
+ * Verifies Djangoplicity (ESA/Hubble, ESA/Webb, ESO, NOIRLab) rights from freshly retrieved pages.
  *
- * Both sites state that their images are CC BY 4.0 "unless explicitly stated otherwise", and
+ * Each site states that its images are CC BY 4.0 unless explicitly stated otherwise, and
  * each asset page carries its own mandatory credit line and credit notice. An asset is
  * accepted only when the site policy is current, the asset page belongs to the requested
  * asset, carries the credit and notice, links the policy, and contains no wording suggesting an
@@ -64,6 +64,8 @@ internal class DjangoplicityEvidenceVerifier(
                 owner = when (site) {
                     DjangoplicitySite.HUBBLE -> RightsOwner.ESA_HUBBLE
                     DjangoplicitySite.WEBB -> RightsOwner.ESA_WEBB
+                    DjangoplicitySite.ESO -> RightsOwner.ESO
+                    DjangoplicitySite.NOIRLAB -> RightsOwner.NOIRLAB
                 },
                 coverage = RightsCoverage.ENTIRE_ASSET,
                 restrictions = restrictions,

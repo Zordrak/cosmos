@@ -42,13 +42,4 @@ class SlideshowTest {
         assertEquals("Credit: ESA/Hubble & NASA, A. Synthetic", attribution.credit)
         assertEquals("ESA/Hubble  \u00b7  CC BY 4.0  \u00b7  esahubble.org/images/heic9901a", attribution.source)
     }
-
-    @Test
-    fun samplesDownWithoutDroppingBelowScreenResolution() {
-        assertEquals(1, sampleSizeFor(1920, 1080, 1920, 1080))
-        assertEquals(1, sampleSizeFor(3000, 1688, 1920, 1080))
-        assertEquals(2, sampleSizeFor(4000, 2250, 1920, 1080))
-        assertEquals(4, sampleSizeFor(9694, 6463, 1920, 1080))
-        assertEquals(1, sampleSizeFor(0, 0, 1920, 1080))
-    }
 }
