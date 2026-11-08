@@ -16,6 +16,7 @@ import com.cosmos.screensaver.R
 import com.cosmos.screensaver.catalogue.CatalogueEntry
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.source.sha256Of
+import com.cosmos.screensaver.sync.ImageStreamer
 import com.cosmos.screensaver.sync.RefreshCoordinator
 import com.cosmos.screensaver.sync.RefreshJobService
 import java.io.File
@@ -37,6 +38,9 @@ internal class SlideshowController(
     private var worker: HandlerThread? = null
     private var workerHandler: Handler? = null
     private var shownAny = false
+    private var streamer: ImageStreamer? = null
+    private var streamTurn = false
+    private var streamedLast = false
 
     fun start() {
         if (worker != null) return
@@ -54,6 +58,8 @@ internal class SlideshowController(
         worker?.quitSafely()
         worker = null
         workerHandler = null
+        streamer?.discardAll()
+        streamer = null
     }
 
     private fun advance() {
@@ -61,13 +67,17 @@ internal class SlideshowController(
         val shown = showNextImage()
         if (shown) {
             shownAny = true
-            handler.postDelayed(::advance, settings.intervalSeconds * 1000L)
+            val seconds = if (streamedLast) maxOf(settings.intervalSeconds, ImageStreamer.MIN_INTERVAL_SECONDS)
+            else settings.intervalSeconds
+            handler.postDelayed(::advance, seconds * 1000L)
         } else {
             if (!shownAny) {
-                val message = if (RefreshCoordinator.isRunning) {
-                    context.getString(R.string.slideshow_fetching)
-                } else {
-                    context.getString(R.string.slideshow_empty)
+                val message = when {
+                    RefreshCoordinator.lowOnSpace(context, store) -> context.getString(
+                        if (streamer().hasRoom()) R.string.slideshow_streaming else R.string.slideshow_no_space
+                    )
+                    RefreshCoordinator.isRunning -> context.getString(R.string.slideshow_fetching)
+                    else -> context.getString(R.string.slideshow_empty)
                 }
                 mainHandler.post { view.showMessage(message) }
             }
@@ -75,9 +85,42 @@ internal class SlideshowController(
         }
     }
 
+    private fun streamer(): ImageStreamer = streamer ?: ImageStreamer(context).also { streamer = it }
+
+    /** Streaming replaces the library only when free space is critically low and few images are cached. */
+    private fun shouldStream(cachedCount: Int): Boolean {
+        if (cachedCount >= ImageStreamer.SMALL_LIBRARY) return false
+        if (!RefreshCoordinator.lowOnSpace(context, store)) return false
+        if (cachedCount == 0) return true
+        streamTurn = !streamTurn
+        return streamTurn
+    }
+
+    private fun streamImage(): Boolean {
+        val streamer = streamer()
+        val entry = streamer.next() ?: return false
+        try {
+            val frame = frameFor(streamer.file(entry), entry) ?: return false
+            val attribution = Attribution.of(entry)
+            mainHandler.post { view.show(frame, attribution) }
+            return true
+        } finally {
+            streamer.discard(entry)
+        }
+    }
+
     private fun showNextImage(): Boolean {
+        val enabled = settings.enabledProviders
+        val cached = settings.selection.eligible(store.load().entries.filter { it.provider in enabled })
+        if (shouldStream(cached.size)) {
+            if (streamImage()) {
+                streamedLast = true
+                return true
+            }
+            Log.w(TAG, "Streaming unavailable; falling back to cached images")
+        }
+        streamedLast = false
         repeat(MAX_ATTEMPTS) {
-            val enabled = settings.enabledProviders
             val entries = settings.selection.eligible(store.load().entries.filter { it.provider in enabled })
             val key = order.next(entries.map { it.key }) ?: return false
             val entry = entries.first { it.key == key }
@@ -104,6 +147,10 @@ internal class SlideshowController(
             store.remove(entry.key)
             return null
         }
+        return frameFor(file, entry)
+    }
+
+    private fun frameFor(file: File, entry: CatalogueEntry): Frame? {
         val (screenWidth, screenHeight) = screenSize()
         val place = placement(
             settings.displayMode, entry.widthPx, entry.heightPx, screenWidth, screenHeight, physicalWidth(screenWidth)

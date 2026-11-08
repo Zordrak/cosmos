@@ -24,6 +24,7 @@ import com.cosmos.screensaver.source.sha256Of
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -92,6 +93,42 @@ class CatalogueRefresherTest {
             store.imagesDirectory.list()!!.toSet())
         assertTrue(catalogue.lastSummary.startsWith("2 images available"))
         assertEquals(now, catalogue.lastSuccessAtEpochMillis)
+    }
+
+    @Test
+    fun streamNextReturnsAnImageWithoutTouchingTheLibrary() {
+        publish(hubble, "heic9901a")
+        val refresher = refresher(selection = personal)
+        val queue = StreamQueue()
+
+        val entry = refresher.streamNext(queue)!!
+
+        assertEquals("ESA_HUBBLE:heic9901a", entry.key)
+        assertTrue(store.imageFile(entry).isFile)
+        assertTrue(store.load().entries.isEmpty())
+        assertEquals(0L, store.load().lastAttemptAtEpochMillis)
+    }
+
+    @Test
+    fun streamNextCyclesThroughImagesAndStartsAgainWhenAllWereShown() {
+        publish(hubble, "heic9901a")
+        publish(hubble, "heic9902a")
+        val refresher = refresher(selection = personal)
+        val queue = StreamQueue()
+
+        val first = refresher.streamNext(queue)!!
+        val second = refresher.streamNext(queue)!!
+        val third = refresher.streamNext(queue)!!
+
+        assertEquals(setOf("ESA_HUBBLE:heic9901a", "ESA_HUBBLE:heic9902a"), setOf(first.key, second.key))
+        assertTrue(third.key in setOf(first.key, second.key))
+    }
+
+    @Test
+    fun streamNextReturnsNullWhenNothingIsAvailable() {
+        fetcher.offline = true
+
+        assertNull(refresher(selection = personal).streamNext(StreamQueue()))
     }
 
     @Test

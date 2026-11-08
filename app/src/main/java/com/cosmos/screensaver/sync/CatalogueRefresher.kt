@@ -56,7 +56,7 @@ internal data class RefreshResult(
             if (rejected > 0) append(", skipped $rejected")
             if (withdrawn > 0) append(", withdrew $withdrawn")
             append('.')
-            if (lowSpace) append(" Not enough free space to download more.")
+            if (lowSpace) append(" Not enough free space to keep a library; images are streamed instead.")
             if (errors.isNotEmpty()) append(" Problems: ").append(errors.joinToString("; "))
         }
 }
@@ -242,6 +242,34 @@ internal class CatalogueRefresher(
         }
         deleteUnreferencedFiles(saved.entries.map { it.fileName }.toSet())
         return partial.copy(total = selection.eligible(saved.entries.filter { it.provider in providers }).size)
+    }
+
+    /**
+     * Fetches one qualifying image for immediate display, without keeping a library. The file is
+     * stored in [store]; the caller must delete it after use. Used when there is too little free
+     * space to cache images. Returns null when no image could be obtained.
+     */
+    fun streamNext(queue: StreamQueue): CatalogueEntry? {
+        store.imagesDirectory.mkdirs()
+        repeat(MAX_STREAM_PROBES) {
+            if (queue.pending.isEmpty()) {
+                queue.refill(adapters, fetcher, random)
+                if (queue.pending.isEmpty()) return null
+            }
+            val (adapter, lead) = queue.pending.removeFirst()
+            val key = "${adapter.provider.name}:${lead.id}"
+            queue.tried += key
+            val outcome = try {
+                when (val result = lead.resolve()) {
+                    is CandidateResult.Ready -> admit(result.candidate, null, mutableListOf(), mutableSetOf())
+                    else -> null
+                }
+            } catch (error: IOException) {
+                null
+            }
+            if (outcome is Outcome.Admitted) return outcome.entry
+        }
+        return null
     }
 
     /** The resolution new images must meet; lower while a fallback quality is in use. */
@@ -556,6 +584,7 @@ internal class CatalogueRefresher(
         const val IMAGE_TOO_LARGE = "IMAGE_TOO_LARGE"
         const val EXCEEDS_MAX_DIMENSIONS = "EXCEEDS_MAX_DIMENSIONS"
         private const val HEADER_BYTES = 32
+        private const val MAX_STREAM_PROBES = 12
 
         /** Rejections that a changed selection or policy could overturn. */
         internal fun isSettingsDependent(reason: String) =

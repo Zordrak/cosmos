@@ -13,6 +13,7 @@ One Android application module with package boundaries:
 | Package | Responsibility |
 | --- | --- |
 | `screensaver` | `CosmosDreamService`, `PreviewActivity`, `TestPatternActivity` (4K pixel check), `SlideshowController` (selection, integrity check, region decoding), `Placement` (display modes), `SlideshowView` (4K `SurfaceView`, cross-fade, captions), `SyntheticArtworkRenderer` (empty state) |
+| `sync` (streaming) | `ImageStreamer` and `StreamQueue`: the low-space fallback that fetches, shows and deletes one image at a time via `CatalogueRefresher.streamNext`, never touching the library |
 | `source` | `ApprovedEndpoints` host allow-list, `HttpsFetcher` (HTTPS only, every redirect hop re-checked, size limits, streamed SHA-256), `Sources` and `SourceAdapter` (one adapter per source), `DjangoplicityAdapter`, `DjangoplicitySite` and `DjangoplicityParser` for ESA/Hubble, ESA/Webb, ESO and NOIRLab, `NasaSources` (NASA Image Library and APOD), `ImageHeader` (JPEG/PNG dimension probing) |
 | `rights` | `LicenceValidator` (fail-closed gate, [ADR 0002](decisions/0002-rights-evidence-gate.md)) and `DjangoplicityEvidenceVerifier` ([ADR 0003](decisions/0003-esa-sources-and-nasa-exclusion.md)) |
 | `catalogue` | `CatalogueEntry` provenance model and `CatalogueStore` (atomic JSON file plus app-private image files) |

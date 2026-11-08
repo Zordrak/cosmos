@@ -137,18 +137,34 @@ internal object RefreshCoordinator {
         return true
     }
 
+    internal fun createRefresher(
+        context: Context,
+        store: CatalogueStore,
+        budgetFor: (usedBytes: Long) -> Long
+    ): CatalogueRefresher {
+        val settings = CosmosSettings(context)
+        return CatalogueRefresher(
+            fetcher = HttpsFetcher(userAgent(context)),
+            store = store,
+            inspector = ::inspectImage,
+            territory = deviceTerritory(),
+            adapters = Sources.adapters(settings.enabledProviders),
+            selection = settings.selection,
+            budgetFor = budgetFor
+        )
+    }
+
+    /** Bytes available on the device's storage right now. */
+    fun freeBytes(context: Context): Long = try {
+        StatFs(context.applicationContext.cacheDir.path).availableBytes
+    } catch (error: IllegalArgumentException) {
+        Long.MAX_VALUE
+    }
+
     private fun runOnce(appContext: Context, store: CatalogueStore): RefreshResult? {
-        val settings = CosmosSettings(appContext)
         return try {
-            CatalogueRefresher(
-                fetcher = HttpsFetcher(userAgent(appContext)),
-                store = store,
-                inspector = ::inspectImage,
-                territory = deviceTerritory(),
-                adapters = Sources.adapters(settings.enabledProviders),
-                selection = settings.selection,
-                budgetFor = { used -> storageBudget(appContext, used) }
-            ).refresh().also { Log.i(TAG, it.summary) }
+            createRefresher(appContext, store) { used -> storageBudget(appContext, used) }
+                .refresh().also { Log.i(TAG, it.summary) }
         } catch (error: Exception) {
             Log.e(TAG, "Refresh failed", error)
             runCatching {

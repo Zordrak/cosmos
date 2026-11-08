@@ -4,7 +4,7 @@
     <string name="dream_name">Cosmos</string>
     <string name="home_tagline">Space imagery from NASA, ESA, ESO and NOIRLab as your TV screensaver. Images are downloaded straight to this TV and shown from its local cache.</string>
     <string name="home_storage">%1$s used by downloaded images</string>
-    <string name="home_low_space">Not enough free space to download more images (%1$s used)</string>
+    <string name="home_low_space">Low on free space: images are streamed, not kept (%1$s used)</string>
     <string name="home_settings_unavailable">Unable to open screensaver settings automatically. Open them from your TV\'s system settings and select Cosmos.</string>
     <string name="home_refreshing">Downloading images…</string>
     <string name="home_last_refresh">Last refresh %1$s. %2$s</string>
@@ -80,6 +80,8 @@
     <string name="quality_any_summary">Uses images of any resolution. Small ones will look soft.</string>
 
     <string name="slideshow_fetching">Fetching space imagery…</string>
+    <string name="slideshow_streaming">Not enough free space to keep images. Streaming them instead…</string>
+    <string name="slideshow_no_space">Not enough free space to cache or stream images. Free up some space on the TV.</string>
     <string name="slideshow_empty">No images yet. Open Cosmos to download images.</string>
     <plurals name="home_image_count">
         <item quantity="one">%d image ready</item>
