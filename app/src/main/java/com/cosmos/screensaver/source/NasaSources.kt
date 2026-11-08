@@ -138,7 +138,23 @@ internal object NasaLibraryParser {
     private val UNWANTED = Regex(
         """\b(illustrations?|artists?|concepts?|renderings?|rendered|animations?|diagrams?|charts?|graphics?|infographics?|""" +
             """astronauts?|crew|portraits?|ceremony|briefing|interview|employees?|team|launch ?pad|rockets?|""" +
-            """rovers?|landers?|facility|laboratory|simulation|simulated|logo|poster|patch)\b""",
+            """rovers?|landers?|facility|laboratory|simulation|simulated|logo|poster|patch|""" +
+            """power|fission|reactors?|testbeds?|tests?|testing|filming|engineers?|technicians?|scientists?|""" +
+            """workers?|building|hangar|prototype|equipment|exhibit|mission control)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** Hardware words that are only rejected in the title, because keywords legitimately mention them. */
+    private val UNWANTED_TITLE = Regex(
+        """\b(spacecraft|satellite|vehicle|capsule|module|instrument|antenna|dish|suit|station|orbiter)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** An item must look astronomical: one of these must appear in the title, keywords or description. */
+    private val ASTRONOMICAL = Regex(
+        """galax|nebula|\bstars?\b|stellar|cluster|supernova|hubble|webb|jwst|chandra|spitzer|comet|planet|jupiter|""" +
+            """saturn|\bmars\b|\bmoon\b|lunar|\bsun\b|solar|aurora|milky way|cosmic|universe|telescope|\bearth\b|""" +
+            """nasa image of the day|asteroid|eclipse|constellation|pulsar|black hole|quasar|exoplanet""",
         RegexOption.IGNORE_CASE
     )
 
@@ -158,8 +174,9 @@ internal object NasaLibraryParser {
         val keywords = data.optJSONArray("keywords")?.let { array ->
             (0 until array.length()).joinToString(" ") { array.optString(it) }
         }.orEmpty()
-        if (UNWANTED.containsMatchIn("$title $keywords")) return null
+        if (UNWANTED.containsMatchIn("$title $keywords") || UNWANTED_TITLE.containsMatchIn(title)) return null
         val description = HtmlText.toPlainText(data.optString("description"))
+        if (!ASTRONOMICAL.containsMatchIn("$title $keywords $description")) return null
         if (Regex("""artist'?s? (concept|rendering|illustration)|illustration|animation""", RegexOption.IGNORE_CASE)
                 .containsMatchIn(description)
         ) {

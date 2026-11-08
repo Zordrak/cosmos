@@ -71,6 +71,23 @@ class NasaSourcesTest {
     }
 
     @Test
+    fun skipsHardwareAndNonAstronomicalItems() {
+        fun json(id: String, title: String, description: String) =
+            """{"collection":{"items":[{"data":[{"media_type":"image","nasa_id":"$id","title":"$title",
+              "description":"$description"}],"links":[{"rel":"canonical","href":
+              "https://images-assets.nasa.gov/image/$id/$id~orig.jpg"}]}]}}"""
+
+        fun ids(title: String, description: String) =
+            NasaLibraryParser.items(json("PIA99010", title, description)).map { it.nasaId }
+
+        assertEquals(emptyList<String>(), ids("Fission Surface Power", "A reactor for the Moon."))
+        assertEquals(emptyList<String>(), ids("IPEx Testbed Filming", "Testing on the Moon."))
+        assertEquals(emptyList<String>(), ids("Orion spacecraft", "Heading to the Moon."))
+        assertEquals(emptyList<String>(), ids("Lunch with visitors", "People eating."))
+        assertEquals(listOf("PIA99010"), ids("Barred Spiral Galaxy", "A galaxy of stars."))
+    }
+
+    @Test
     fun everyNasaUrlTheAdaptersUseIsApproved() {
         assertTrue(ApprovedEndpoints.isApproved(ApodAdapter.listingUrl(3)))
         assertTrue(ApprovedEndpoints.isApproved(NasaLibraryAdapter.searchUrl("hubble deep field")))
