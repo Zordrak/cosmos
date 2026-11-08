@@ -84,6 +84,9 @@ class NasaSourcesTest {
         assertEquals(emptyList<String>(), ids("IPEx Testbed Filming", "Testing on the Moon."))
         assertEquals(emptyList<String>(), ids("Orion spacecraft", "Heading to the Moon."))
         assertEquals(emptyList<String>(), ids("Lunch with visitors", "People eating."))
+        assertEquals(emptyList<String>(), ids("Comet 67P Changes", "A comet seen over time."))
+        assertEquals(emptyList<String>(), ids("Comet 67P", "Top center images: ESA/Rosetta. A comet."))
+        assertEquals(emptyList<String>(), ids("A Comet", "An annotated view of a comet."))
         assertEquals(listOf("PIA99010"), ids("Barred Spiral Galaxy", "A galaxy of stars."))
     }
 

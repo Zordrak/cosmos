@@ -148,7 +148,15 @@ internal object NasaLibraryParser {
 
     /** Hardware words that are only rejected in the title, because keywords legitimately mention them. */
     private val UNWANTED_TITLE = Regex(
-        """\b(spacecraft|satellite|vehicle|capsule|module|instrument|antenna|dish|suit|station|orbiter)\b""",
+        """\b(spacecraft|satellite|vehicle|capsule|module|instrument|antenna|dish|suit|station|orbiter|""" +
+            """changes|comparisons?|compared|before and after|timeline|collage|montage|annotated|labell?ed|maps?|versus|vs)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** Descriptions that reveal a multi-panel graphic rather than a single picture. */
+    private val PANELLED = Regex(
+        """\b(annotated|labell?ed|side[- ]by[- ]side|collage|montage|infographic|diagram)\b|""" +
+            """\b(top|bottom|left|right|upper|lower|center|centre)(\s+(left|right|center|centre))?\s+images?\s*:""",
         RegexOption.IGNORE_CASE
     )
 
@@ -179,6 +187,7 @@ internal object NasaLibraryParser {
         if (UNWANTED.containsMatchIn("$title $keywords") || UNWANTED_TITLE.containsMatchIn(title)) return null
         val description = HtmlText.toPlainText(data.optString("description"))
         if (!ASTRONOMICAL.containsMatchIn("$title $keywords $description")) return null
+        if (PANELLED.containsMatchIn(description)) return null
         if (Regex("""artist'?s? (concept|rendering|illustration)|illustration|animation""", RegexOption.IGNORE_CASE)
                 .containsMatchIn(description)
         ) {
