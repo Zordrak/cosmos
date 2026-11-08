@@ -1,15 +1,15 @@
 package com.cosmos.screensaver.screensaver
 
-import android.service.dreams.DreamService
-import android.util.Log
-import android.view.View
+import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.graphics.Typeface
-import com.cosmos.screensaver.R
+import android.service.dreams.DreamService
+import android.util.Log
+import android.view.View
 import kotlin.random.Random
 
 class CosmosDreamService : DreamService() {
@@ -47,7 +47,7 @@ class CosmosDreamService : DreamService() {
  * Original procedural artwork used only to prove the native screensaver rendering path.
  * It contains no third-party or externally sourced imagery.
  */
-private class CosmosTestArtworkView(context: android.content.Context) : View(context) {
+private class CosmosTestArtworkView(context: Context) : View(context) {
     private val stars = List(420) { index ->
         val random = Random(index * 7919 + 17)
         Star(
@@ -61,15 +61,14 @@ private class CosmosTestArtworkView(context: android.content.Context) : View(con
     private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textSize = 34f
         typeface = Typeface.create("sans-serif", Typeface.NORMAL)
-        letterSpacingCompat = 0f
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(Color.rgb(3, 7, 17))
 
+        // Render a fixed 16:9 composition, centred and never stretched.
         val scale = minOf(width / ART_WIDTH, height / ART_HEIGHT)
         val left = (width - ART_WIDTH * scale) / 2f
         val top = (height - ART_HEIGHT * scale) / 2f
@@ -103,10 +102,7 @@ private class CosmosTestArtworkView(context: android.content.Context) : View(con
         val secondaryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = RadialGradient(
                 1180f, 440f, 260f,
-                intArrayOf(
-                    Color.argb(80, 42, 135, 180),
-                    Color.TRANSPARENT
-                ),
+                intArrayOf(Color.argb(80, 42, 135, 180), Color.TRANSPARENT),
                 null,
                 Shader.TileMode.CLAMP
             )
@@ -132,7 +128,7 @@ private class CosmosTestArtworkView(context: android.content.Context) : View(con
 
         textPaint.alpha = 170
         textPaint.textSize = 18f
-        canvas.drawText("SYNTHETIC ARTWORK  •  NO NETWORK REQUIRED", 92f, 1010f, textPaint)
+        canvas.drawText("SYNTHETIC ARTWORK  -  NO NETWORK REQUIRED", 92f, 1010f, textPaint)
     }
 
     private data class Star(
@@ -147,8 +143,3 @@ private class CosmosTestArtworkView(context: android.content.Context) : View(con
         private const val ART_HEIGHT = 1080f
     }
 }
-
-/** Keep the source compatible with Android's Paint API without depending on Compose. */
-private var Paint.letterSpacingCompat: Float
-    get() = 0f
-    set(_) = Unit
