@@ -69,13 +69,12 @@ private class CosmosTestArtworkView(context: Context) : View(context) {
         canvas.drawColor(Color.rgb(3, 7, 17))
 
         // Render a fixed 16:9 composition, centred and never stretched.
-        val scale = minOf(width / ART_WIDTH, height / ART_HEIGHT)
-        val left = (width - ART_WIDTH * scale) / 2f
-        val top = (height - ART_HEIGHT * scale) / 2f
+        if (width <= 0 || height <= 0) return
+        val viewport = ArtworkViewport.fit(width, height)
 
         val checkpoint = canvas.save()
-        canvas.translate(left, top)
-        canvas.scale(scale, scale)
+        canvas.translate(viewport.left, viewport.top)
+        canvas.scale(viewport.scale, viewport.scale)
 
         drawNebula(canvas)
         drawStars(canvas)
