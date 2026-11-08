@@ -151,6 +151,12 @@ class MainActivity : Activity() {
             refreshes = true
         ))
 
+        list.addView(choice(
+            R.string.row_stream_only, listOf(false, true), { settings.streamOnly }, { settings.streamOnly = it },
+            label = { getString(if (it) R.string.value_on else R.string.value_off) },
+            summary = { getString(if (it) R.string.stream_only_on_summary else R.string.stream_only_off_summary) }
+        ))
+
         list.addView(header(R.string.section_sources))
         AssetProvider.entries.forEach { provider ->
             list.addView(choice(

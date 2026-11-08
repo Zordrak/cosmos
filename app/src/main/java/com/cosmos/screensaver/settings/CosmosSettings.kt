@@ -33,6 +33,11 @@ internal class CosmosSettings(context: Context) {
         get() = preferences.enumValue(KEY_LICENCE_MODE, LicenceMode.ANY_AVAILABLE)
         set(value) = preferences.edit().putString(KEY_LICENCE_MODE, value.name).apply()
 
+    /** Streams every image instead of using the cache; the cache is left untouched. */
+    var streamOnly: Boolean
+        get() = preferences.getBoolean(KEY_STREAM_ONLY, false)
+        set(value) = preferences.edit().putBoolean(KEY_STREAM_ONLY, value).apply()
+
     val selection: ImageSelection get() = ImageSelection(licenceMode, quality)
 
     fun isEnabled(provider: AssetProvider) = preferences.getBoolean(sourceKey(provider), true)
@@ -62,6 +67,7 @@ internal class CosmosSettings(context: Context) {
         private const val KEY_CAPTION_MODE = "caption_mode"
         private const val KEY_QUALITY = "quality"
         private const val KEY_LICENCE_MODE = "licence_mode"
+        private const val KEY_STREAM_ONLY = "stream_only"
         const val DEFAULT_INTERVAL_SECONDS = 60
         val DEFAULT_DISPLAY_MODE = DisplayMode.FILL
         val DEFAULT_CAPTION_MODE = CaptionMode.SUBTLE

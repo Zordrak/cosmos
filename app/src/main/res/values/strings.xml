@@ -49,6 +49,9 @@
     <string name="credits_off">Off</string>
     <string name="credits_off_summary">No title or credit is shown on screen.</string>
     <string name="row_collection">Image collection</string>
+    <string name="row_stream_only">Stream instead of cache</string>
+    <string name="stream_only_on_summary">Every image is downloaded as it is shown and then deleted. The cached library is left alone.</string>
+    <string name="stream_only_off_summary">Use the cached library. Streaming only steps in when space runs out.</string>
     <string name="row_licence">Only openly licensed images</string>
     <string name="licence_on_summary">Only images verified as CC BY 4.0 or as NASA public-domain works.</string>
     <string name="licence_off_summary">Any publicly available image from the sources below.</string>
@@ -81,6 +84,7 @@
 
     <string name="slideshow_fetching">Fetching space imagery…</string>
     <string name="slideshow_streaming">Not enough free space to keep images. Streaming them instead…</string>
+    <string name="slideshow_streaming_only">Streaming images…</string>
     <string name="slideshow_no_space">Not enough free space to cache or stream images. Free up some space on the TV.</string>
     <string name="slideshow_empty">No images yet. Open Cosmos to download images.</string>
     <plurals name="home_image_count">

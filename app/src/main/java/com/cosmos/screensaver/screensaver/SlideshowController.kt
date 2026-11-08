@@ -67,12 +67,16 @@ internal class SlideshowController(
         val shown = showNextImage()
         if (shown) {
             shownAny = true
-            val seconds = if (streamedLast) maxOf(settings.intervalSeconds, ImageStreamer.MIN_INTERVAL_SECONDS)
-            else settings.intervalSeconds
+            val seconds = if (streamedLast && !settings.streamOnly) {
+                maxOf(settings.intervalSeconds, ImageStreamer.MIN_INTERVAL_SECONDS)
+            } else settings.intervalSeconds
             handler.postDelayed(::advance, seconds * 1000L)
         } else {
             if (!shownAny) {
                 val message = when {
+                    settings.streamOnly -> context.getString(
+                        if (streamer().hasRoom()) R.string.slideshow_streaming_only else R.string.slideshow_no_space
+                    )
                     RefreshCoordinator.lowOnSpace(context, store) -> context.getString(
                         if (streamer().hasRoom()) R.string.slideshow_streaming else R.string.slideshow_no_space
                     )
@@ -111,6 +115,10 @@ internal class SlideshowController(
 
     private fun showNextImage(): Boolean {
         val enabled = settings.enabledProviders
+        if (settings.streamOnly) {
+            streamedLast = true
+            return streamImage()
+        }
         val cached = settings.selection.eligible(store.load().entries.filter { it.provider in enabled })
         if (shouldStream(cached.size)) {
             if (streamImage()) {
