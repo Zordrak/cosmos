@@ -75,7 +75,7 @@ The user also confirmed that Retro Screensaver Collection appears in the Sony's 
 
 ## Remaining verification
 
-- Physically verify the revised synthetic fixture's edge markers and a distinct-version app upgrade.
+- Check system-selection retention when an app that is selected as the screensaver receives a distinct-version update.
 - Test other devices and lifecycle cases listed in the physical-device validation plan where available.
 - Revisit minSdk and targetSdk if device evidence or current Play policy changes.
 - Before Play release, verify current AAB, 32-/64-bit, 16 KB page-size and listing requirements, including any new policy changes.

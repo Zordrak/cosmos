@@ -61,11 +61,15 @@ The debug APK from [CI run 42495932115](https://github.com/Zordrak/cosmos/action
 - The selection survived a TV restart. Cosmos subsequently started again after that restart and a same-version APK reinstall.
 - The reinstall preserved the selection, but it did not test an upgrade to a distinct app version.
 - The installed package did not request the Internet permission. A physical offline test is deferred until network-dependent functionality exists.
-- The tested APK predates the corner markers; physical verification of the revised fixture and a distinct-version upgrade remain outstanding.
+- The original CI-signed package remains installed and selected. A local debug APK with a different signing certificate was not installed over it.
 
-A locally built revised debug APK had a different signing certificate from the installed CI APK, so Android cannot install it as an in-place update. Verify package names and signing certificates before an update test; do not uninstall the existing app or clear its data without the user's approval.
+#### Revised fixture and side-by-side upgrade check
 
-For a future side-by-side update check, two test APKs were prepared as session artifacts, not committed to the repository. They use the separate package `com.cosmos.screensaver.debug.m001test`, the same signing certificate, and versionCodes 1 and 2. Selecting the test screensaver temporarily changes the system selection, but does not replace the original app. Both APKs use the same source, so the check can verify platform upgrade and selection behaviour, not future data migrations.
+To avoid replacing or uninstalling the original installation, a pair of test APKs using package `com.cosmos.screensaver.debug.m001test`, signed with a local debug key, was installed alongside it. On version 1 (versionCode 1), the user selected and opened **Cosmos M001 test** through the TV's screensaver UI. The user confirmed that all four white corner markers were visible and noted a small margin of background around each.
+
+The user then restored the original Cosmos selection and returned to Home. While the test app was no longer selected or running, version 2 (versionCode 2) was installed over version 1 using the same package and signing certificate. Android accepted the update and reports version 2; the original Cosmos package remains installed and selected. The test APK requested no Android permissions and its DreamService registration remained present.
+
+This verifies the separate test package's versioned install/update path, but **does not verify that Android retains the selection when the selected DreamService app itself is upgraded**, because the user restored the original selection before the update. No application-data migration was exercised. The test packages are session artifacts, not repository files. A physical offline test remains deferred until the app has network-dependent functionality.
 
 ## Later milestones
 
