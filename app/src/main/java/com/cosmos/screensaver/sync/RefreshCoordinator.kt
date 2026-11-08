@@ -7,6 +7,7 @@ import android.os.Looper
 import android.util.Log
 import com.cosmos.screensaver.catalogue.Catalogue
 import com.cosmos.screensaver.catalogue.CatalogueStore
+import com.cosmos.screensaver.rights.LicenceValidator
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.source.HttpsFetcher
 import java.util.Locale
@@ -39,6 +40,7 @@ internal object RefreshCoordinator {
     internal fun isStale(catalogue: Catalogue, now: Long): Boolean {
         val sinceAttempt = now - catalogue.lastAttemptAtEpochMillis
         if (sinceAttempt < 0) return true
+        if (catalogue.entries.any { it.policyVersion != LicenceValidator.POLICY_VERSION }) return true
         return if (catalogue.entries.isEmpty()) {
             sinceAttempt >= EMPTY_RETRY_AFTER_MILLIS
         } else {

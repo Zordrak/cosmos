@@ -295,7 +295,7 @@ internal class LicenceValidator(
     }
 
     companion object {
-        const val POLICY_VERSION = "2"
+        const val POLICY_VERSION = "3"
         const val CC_BY_4_0_URL = "https://creativecommons.org/licenses/by/4.0/"
         private val ESA_HUBBLE_HOSTS = setOf("esahubble.org", "www.esahubble.org", "cdn.esahubble.org")
         private val ESA_WEBB_HOSTS = setOf("esawebb.org", "www.esawebb.org", "cdn.esawebb.org")

@@ -27,4 +27,10 @@ class RefreshCoordinatorTest {
     fun treatsClockGoingBackwardsAsStale() {
         assertTrue(RefreshCoordinator.isStale(populated.copy(lastAttemptAtEpochMillis = 50 * hour), 10 * hour))
     }
+
+    @Test
+    fun refreshesImmediatelyWhenEntriesUseAnOlderRightsPolicy() {
+        val outdated = populated.copy(entries = populated.entries.map { it.copy(policyVersion = "1") })
+        assertTrue(RefreshCoordinator.isStale(outdated, 1 * hour))
+    }
 }

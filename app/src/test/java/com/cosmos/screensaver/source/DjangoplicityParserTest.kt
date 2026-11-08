@@ -119,4 +119,16 @@ class DjangoplicityParserTest {
         assertEquals("&unknown;", HtmlText.decodeEntities("&unknown;"))
         assertEquals("a b", HtmlText.toPlainText("a<script>var x = 1;</script>b"))
     }
+
+    @Test
+    fun inlineLinksDoNotAddSpacesToCredits() {
+        assertEquals(
+            "NASA, ESA, and A. Person (Example Institute) and the Team",
+            HtmlText.toPlainText(
+                "<p><a href=\"https://example.org\">NASA</a>, <a href=\"https://example.org\">ESA</a>, " +
+                    "and A. Person (<a href=\"https://example.org\">Example Institute</a>) and the Team</p>"
+            )
+        )
+        assertEquals("Line one Line two", HtmlText.toPlainText("<p>Line one</p><p>Line two</p>"))
+    }
 }

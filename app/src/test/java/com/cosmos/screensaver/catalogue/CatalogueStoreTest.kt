@@ -89,7 +89,7 @@ class CatalogueStoreTest {
                 territory = "GB",
                 evidence = listOf(EvidenceRecord("https://esahubble.org/copyright/", "statement", "PROVIDER_OR_COLLECTION", 1L)),
                 validatedAtEpochMillis = 2L,
-                policyVersion = "2",
+                policyVersion = com.cosmos.screensaver.rights.LicenceValidator.POLICY_VERSION,
                 admittedAtEpochMillis = 3L,
                 sha256 = sha,
                 byteCount = 4L,

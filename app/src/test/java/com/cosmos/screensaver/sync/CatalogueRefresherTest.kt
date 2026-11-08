@@ -216,6 +216,35 @@ class CatalogueRefresherTest {
         assertEquals(listOf("ESA_HUBBLE:heic9902a"), store.load().entries.map { it.key })
     }
 
+    @Test
+    fun revalidatesEntriesAdmittedUnderAnOlderRightsPolicy() {
+        publish(hubble, "heic9901a")
+        refresher().refresh()
+        store.update { current -> current.copy(entries = current.entries.map { it.copy(credit = "Old", policyVersion = "1") }) }
+
+        refresher().refresh()
+
+        val entry = store.load().entries.single()
+        assertEquals(LicenceValidator.POLICY_VERSION, entry.policyVersion)
+        assertTrue(entry.credit != "Old")
+    }
+
+    @Test
+    fun storesEachAdmissionBeforeTheRefreshFinishes() {
+        publish(hubble, "heic9901a")
+        publish(hubble, "heic9902a")
+        val storedWhenInspecting = mutableListOf<Int>()
+        val recording = ImageInspector { file ->
+            storedWhenInspecting += store.load().entries.size
+            dimensions[String(file.readBytes(), Charsets.ISO_8859_1).substring(3)]
+        }
+
+        refresher(inspector = recording).refresh()
+
+        assertEquals(listOf(0, 1), storedWhenInspecting)
+        assertEquals(2, store.load().entries.size)
+    }
+
     private fun refresher(
         territory: String? = "GB",
         sites: Set<DjangoplicitySite> = DjangoplicitySite.entries.toSet(),

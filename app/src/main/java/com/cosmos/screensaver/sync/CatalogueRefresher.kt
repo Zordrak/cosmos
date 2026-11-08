@@ -82,7 +82,10 @@ internal class CatalogueRefresher(
     fun refresh(): RefreshResult {
         val startedAt = clock()
         val initial = store.load()
-        val entries = initial.entries.toMutableList()
+        // Entries validated under an older rights policy must be re-validated before display.
+        val entries = initial.entries
+            .filter { it.policyVersion == LicenceValidator.POLICY_VERSION }
+            .toMutableList()
         val rejections = initial.rejections
             .filterValues { startedAt - it.atEpochMillis in 0 until limits.rejectionRetryMillis }
             .toMutableMap()
@@ -134,6 +137,10 @@ internal class CatalogueRefresher(
                 when (val outcome = admit(site, policy, id)) {
                     is Outcome.Admitted -> {
                         entries += outcome.entry
+                        // Persist immediately so slow devices can show images before the refresh ends.
+                        store.update { current ->
+                            current.copy(entries = current.entries.filterNot { it.key == outcome.entry.key } + outcome.entry)
+                        }
                         admitted++
                         siteAdmissions++
                     }
@@ -147,14 +154,14 @@ internal class CatalogueRefresher(
         }
 
         val retained = enforceCapacity(entries)
-        val admittedKeys = retained.map { it.key }.toSet() - initial.entries.map { it.key }.toSet()
         val finishedAt = clock()
         val partial = RefreshResult(admitted, rejected, withdrawnKeys.size, 0, errors.distinct().take(4))
 
         val saved = store.update { current ->
-            // Keep removals made concurrently (e.g. integrity failures found during display).
+            // Admissions are already stored, so this keeps removals made concurrently (e.g.
+            // integrity failures found during display) and applies withdrawals and capacity.
             val currentKeys = current.entries.map { it.key }.toSet()
-            val merged = retained.filter { it.key in currentKeys || it.key in admittedKeys }
+            val merged = retained.filter { it.key in currentKeys }
             val result = partial.copy(total = merged.size)
             Catalogue(
                 entries = merged,

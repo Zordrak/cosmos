@@ -63,9 +63,16 @@ The user then restored the original Cosmos selection and returned to Home. While
 
 This verifies the separate test package's versioned install/update path, but **does not verify that Android retains the selection when the selected DreamService app itself is upgraded**, because the user restored the original selection before the update. No application-data migration was exercised. The test packages are session artifacts, not repository files. A physical offline test remains deferred until the app has network-dependent functionality.
 
-## Full application — physical checks (pending)
+## Full application — physical checks
 
-On the Sony XR-65X90L:
+Verified remotely over ADB on the Sony XR-65X90L on 2026-11-08:
+
+- The first refresh on the TV took about 5 minutes. It admitted 11 images and excluded 17.
+- After the policy 3 update, the outdated entries were re-validated automatically. The result was 12 images, all with verbatim credits.
+- The dream started through Somnambulator and showed fitted images with the full caption.
+- The home screen status is correct.
+
+Still to check by hand, with the remote:
 
 1. Install version 0.2.0 and open Cosmos. Confirm the status shows images downloading and then becoming ready.
 2. **Preview** shows images fitted without cropping. Each image has a readable title, full credit, source, and licence, and the caption alternates corners. Any remote key exits.

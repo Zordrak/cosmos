@@ -36,6 +36,6 @@ The user accepted the Milestone 001 proof of concept on the Sony XR-65X90L, so d
 ## Consequences
 
 - If either site changes its markup, its images are rejected (fail closed) until the parser is updated. Existing cached images remain while the policy check still passes.
-- The rights policy version is now `2`.
+- The rights policy version is now `3` (version 2 introduced these sources; version 3 corrected credit-text extraction). On each refresh, entries validated under an older policy version are removed and re-validated.
 - No NASA-only imagery is shown. Adding a NASA source needs a new ADR describing asset-level evidence that applies outside the US.
 - Refreshes run only when the app is opened, when the screensaver starts and the catalogue is stale, or on request. No background scheduler or extra permission is used. Only `INTERNET` is requested.

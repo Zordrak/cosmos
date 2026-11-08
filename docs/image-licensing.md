@@ -29,7 +29,7 @@ Images are stored byte-for-byte as downloaded. They are only scaled to fit the s
 
 ## Validator boundary
 
-`LicenceValidator` (policy version `2`) still rejects by default and checks every attestation independently. Its checks cover:
+`LicenceValidator` (policy version `3`) still rejects by default and checks every attestation independently. Its checks cover:
 
 - the subject, use context, and full credit;
 - the evidence scope, basis, ownership, coverage, and use permission;

@@ -122,10 +122,16 @@ internal object HtmlText {
         "iacute" to "\u00ed", "ntilde" to "\u00f1", "ccedil" to "\u00e7"
     )
     private val ENTITY = Regex("""&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);""")
+    private val INLINE_TAG = Regex(
+        """</?(a|span|em|strong|b|i|u|sup|sub|abbr|small|cite|code)\b[^>]*>""",
+        RegexOption.IGNORE_CASE
+    )
 
     fun toPlainText(html: String): String {
         val withoutScripts = html.replace(Regex("""<(script|style)[\s\S]*?</\1>""", RegexOption.IGNORE_CASE), " ")
-        val withoutTags = withoutScripts.replace(Regex("""<[^>]*>"""), " ")
+        // Inline elements must not introduce spaces, or credits such as "NASA, ESA" gain stray gaps.
+        val withoutInline = withoutScripts.replace(INLINE_TAG, "")
+        val withoutTags = withoutInline.replace(Regex("""<[^>]*>"""), " ")
         return normalizeWhitespace(decodeEntities(withoutTags))
     }
 

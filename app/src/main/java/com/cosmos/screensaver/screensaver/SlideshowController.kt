@@ -9,6 +9,7 @@ import android.os.Looper
 import android.util.Log
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.catalogue.CatalogueEntry
+import com.cosmos.screensaver.rights.LicenceValidator
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.source.sha256Of
 import com.cosmos.screensaver.sync.RefreshCoordinator
@@ -68,7 +69,9 @@ internal class SlideshowController(
     private fun showNextImage(): Boolean {
         repeat(MAX_ATTEMPTS) {
             val enabled = settings.enabledSites.map { it.provider }.toSet()
-            val entries = store.load().entries.filter { it.provider in enabled }
+            val entries = store.load().entries.filter {
+                it.provider in enabled && it.policyVersion == LicenceValidator.POLICY_VERSION
+            }
             val key = order.next(entries.map { it.key }) ?: return false
             val entry = entries.first { it.key == key }
             val bitmap = loadVerified(entry)
