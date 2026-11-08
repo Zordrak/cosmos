@@ -6,45 +6,38 @@ Cosmos displays an image only when its rights basis is explicit, verifiable, and
 
 The fact that an image is discoverable through an API, downloadable, hosted by NASA or ESA, or displayed on an official website does not itself grant permission to cache or display it in an entertainment/screensaver application.
 
-## NASA
+## Current sources
 
-Admit only material that is demonstrably NASA-owned and public domain, with no conflicting rights notice or third-party restriction.
+See [ADR 0003](decisions/0003-esa-sources-and-nasa-exclusion.md) for the full decision.
 
-Reject:
-- Third-party copyrighted material.
-- Contractor, partner, or contributor material where the applicable rights are not clear.
-- Images credited as used by permission or subject to separate restrictions.
-- Records with missing, contradictory, or ambiguous rights information.
+- **ESA/Hubble** (`esahubble.org`) and **ESA/Webb** (`esawebb.org`) are the only sources, under CC BY 4.0 ([ESA/Hubble terms](https://esahubble.org/copyright/), [ESA/Webb terms](https://esawebb.org/copyright/)). An asset is admitted only when all of the following are true:
+  - The site policy still contains the exact licence sentence.
+  - The asset's own page shows its credit line and the "full credit line … is MANDATORY" notice, and links that policy.
+  - The image comes from the page's own CDN rendition.
+  - The title, caption and credit contain no exception wording (©, "copyright", "all rights reserved", "permission", "courtesy", or other CC variants).
+  - The page type is `Observation`. This excludes collages and illustrations, which may contain logos; logos are excluded from the ESA permission.
+- **NASA endpoints are excluded.** The NASA Images API has no per-asset rights field, and NASA's guidance addresses only U.S. copyright. Cosmos cannot establish asset-level rights for a non-U.S. territory from it. NASA imagery appears only where ESA/Hubble or ESA/Webb publishes it under its own licence, with NASA in the credit.
+- **ESA.int multimedia is excluded.** Licences vary per asset, and the site is being migrated.
 
-NASA Images and Video Library API access is a discovery mechanism, not a licence. Inspect the individual asset record and source context.
+Any new provider, collection or licence type requires a new ADR and validator tests.
 
-[NASA's media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/) describe imagery as not in the public domain while also saying NASA content is generally not subject to U.S. copyright. Neither statement establishes an individual asset's rights or that the intended screensaver use is permitted. The guidelines also discuss third-party material and separate restrictions involving logos, endorsement, and identifiable people. Check those restrictions independently; reject the asset if their applicability or any necessary permission is unclear.
+## Attribution and alteration
 
-## ESA
+The full credit line is reproduced verbatim, as required by the ESA terms, together with the title, source, licence name (CC BY 4.0), and source page address. It is drawn on the image whenever that image is visible, including during cross-fades.
 
-The initial ESA scope is restricted to individually verified ESA/Hubble assets explicitly licensed under Creative Commons Attribution 4.0 International (CC BY 4.0), or another licence separately approved through a documented decision.
+Images are stored byte-for-byte as downloaded. They are only scaled to fit the screen, never cropped, stretched, recoloured or annotated. This is recorded as the alteration status `UNALTERED_SCALED_TO_FIT_ON_DISPLAY`.
 
-Record the exact licence and comply with attribution and indication-of-changes requirements. The [ESA/Hubble usage terms](https://esahubble.org/copyright/) require the full image credit to remain clear, visible, and unaltered, and exclude logos from the general permission. Do not assume that all ESA multimedia is reusable under the same terms or infer an individual asset's rights solely from its presence on the site. Exclude general ESA archive assets unless the exact asset terms clearly permit this use or written permission has been obtained and recorded.
+## Validator boundary
 
-## Evidence availability
+`LicenceValidator` (policy version `2`) still rejects by default and checks every attestation independently. Its checks cover:
 
-Spot checks on 2026-11-08 show why discovery metadata alone is insufficient:
+- the subject, use context, and full credit;
+- the evidence scope, basis, ownership, coverage, and use permission;
+- timestamps and approved hosts.
 
-- A [NASA Images API search result for `PIA01973`](https://images-api.nasa.gov/search?nasa_id=PIA01973&media_type=image) had no structured copyright or licence field. This is one record, not a claim about all NASA records; additional asset-specific evidence is necessary.
-- The checked [ESA/Hubble asset page](https://esahubble.org/images/heic1509a/) included a credit and a site-wide usage-policy link, but no asset-specific licence statement in its page markup. A general policy link alone does not meet the Cosmos per-asset evidence requirement.
+The use territory is the device locale's country. If the country is unknown, the asset is rejected, and Cosmos does not request location access.
 
-These observations do not establish that either asset is unusable. They do mean that an implementation must find and validate sufficient asset-specific evidence or reject the candidate, rather than silently treating a provider-wide default as approval.
-
-## Current validator boundary
-
-The standalone `LicenceValidator` defaults to rejecting every candidate because no production evidence verifier exists yet. It does not retrieve images or evidence, and a rights clearance is not catalogue admission.
-
-An evidence verifier must establish that an authoritative, asset-specific statement applies to the exact asset, complete credit, intended caching and screensaver use, and all rights in the image. It must reject missing, conflicting, restricted, or uncertain evidence. The validator checks the resulting attestation, but does not independently establish the legal meaning or authenticity of its text. Source URL checks alone are not verification. See [ADR 0002](decisions/0002-rights-evidence-gate.md).
-
-The current validator accepts only an explicitly supplied ISO country code and personal, non-commercial screensaver use. It binds that context to the evidence and resulting rights clearance; it does not infer a territory from device settings or request location access. An unknown territory or unsupported use is rejected. In particular, U.S. public-domain status must not be assumed to establish rights in another territory.
-
-The current ESA/Hubble URL guard accepts only `esahubble.org`, `www.esahubble.org`, and `cdn.esahubble.org`; the official ESA/Hubble page links to the latter for image files. This host allowlist does not approve any asset or replace rights verification. Other ESA hosts require a documented policy decision.
-
+The validator does not establish the legal meaning of the evidence text. That is the verifier's job, and the verifier is deliberately conservative: any doubt means rejection.
 ## Required provenance
 
 Every admitted asset must retain:
@@ -65,7 +58,7 @@ Attribution must be displayed with the image in the screensaver. It must remain 
 
 ## Admission process
 
-1. Discover a candidate from an approved provider.
+1. Discover a candidate from an approved provider (site feed or Top 100 listing).
 2. Retrieve its source metadata and rights evidence.
 3. Apply provider-specific rules and the exact asset-level rights checks.
 4. Reject if any required field or evidence is absent or unclear.

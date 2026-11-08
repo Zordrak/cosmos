@@ -2,81 +2,63 @@
 
 ## Goals
 
-Cosmos is a native Android TV / Google TV screensaver that displays a curated stream of space imagery sourced directly from NASA and explicitly approved ESA collections. All retrieval, storage, selection, and rendering happen on the television.
+Cosmos is a native Android TV / Google TV screensaver that shows space imagery downloaded directly from approved sources. Retrieval, rights validation, storage, selection and rendering all happen on the television.
 
-The design has no Cosmos-operated backend, hosted catalogue, CDN, object store, proxy, analytics service, account system, or recurring infrastructure dependency.
+There is no Cosmos-operated backend, hosted catalogue, CDN, object store, proxy, analytics service or account system, and no recurring infrastructure cost.
 
 ## Application structure
 
-Start with one Android application module and package-level boundaries:
+One Android application module with package boundaries:
 
-- `screensaver`: `DreamService`, lifecycle coordination, and display surface.
-- `catalogue`: local catalogue models and image selection.
-- `providers.nasa`: NASA Images and Video Library discovery and metadata mapping.
-- `providers.esa`: narrowly scoped provider for explicitly licensed ESA/Hubble assets.
-- `rights`: per-asset rights evidence and fail-closed validation.
-- `download`: direct downloads, integrity checks, and safe file handling.
-- `cache`: local image files and Room persistence.
-- `settings`: user preferences using DataStore.
-- `ui`: ordinary app/settings UI, using Compose where appropriate.
+| Package | Responsibility |
+| --- | --- |
+| `screensaver` | `CosmosDreamService`, `PreviewActivity`, `SlideshowController` (selection, integrity check, decoding), `SlideshowView` (fit, cross-fade, attribution), `SyntheticArtworkRenderer` (empty state) |
+| `source` | `ApprovedEndpoints` host allow-list, `HttpsFetcher` (HTTPS only, every redirect hop re-checked, size limits, streamed SHA-256), `DjangoplicitySite` and `DjangoplicityParser` for ESA/Hubble and ESA/Webb pages |
+| `rights` | `LicenceValidator` (fail-closed gate, [ADR 0002](decisions/0002-rights-evidence-gate.md)) and `DjangoplicityEvidenceVerifier` ([ADR 0003](decisions/0003-esa-sources-and-nasa-exclusion.md)) |
+| `catalogue` | `CatalogueEntry` provenance model and `CatalogueStore` (atomic JSON file plus app-private image files) |
+| `sync` | `CatalogueRefresher` (discovery, admission pipeline and capacity) and `RefreshCoordinator` (when to refresh, one run at a time) |
+| `settings` | Local `SharedPreferences`: slideshow interval and enabled sources |
 
-Avoid separate Gradle modules until there is a demonstrated build or ownership reason.
+The only dependencies are the Android platform APIs. Room, DataStore, Compose and image-loading libraries were deliberately not added: the catalogue is a few dozen records, and the platform APIs cover the needs without increasing APK size or dependencies.
 
-## Runtime and screensaver lifecycle
+## Admission pipeline
 
-Use Android's native `DreamService` integration and the platform screensaver selection flow. The app must be installed as a normal APK and selectable through the TV settings UI; ADB is a development aid, not a user-facing requirement.
+For each enabled site, `CatalogueRefresher`:
 
-The screensaver runtime should use only already-cached, approved assets. Do not make network access a prerequisite for starting or continuing the screensaver. Handle interruption, user input, wake, stop, and repeated activation cleanly.
+1. Fetches the usage-policy page. If it cannot be fetched, existing images are kept and nothing new is admitted. If the licence sentence has changed, all of that site's images are withdrawn.
+2. Discovers candidate IDs from the site's image RSS feed and Top 100 listing. It skips IDs already in the catalogue and IDs rejected in the last 30 days.
+3. For a bounded, shuffled set of candidates (16 pages and 6 admissions per site per refresh):
+   1. Fetches the asset page and parses it.
+   2. Requires Type `Observation` and landscape proportions.
+   3. Runs the rights verifier and `LicenceValidator`.
+   4. Downloads the preferred CDN rendition to a temporary file.
+   5. Checks the JPEG signature, decoded dimensions, minimum size, and that the proportions match the page.
+   6. Stores the file as `<sha256>.jpg`.
+   7. Records full provenance.
+4. Enforces capacity: 60 images and 400 MB, keeping the newest. It saves atomically, preserving removals made concurrently by the slideshow, and deletes unreferenced files.
 
-## Image providers
+Every rejection is recorded with its reason. A failed or interrupted download never produces a catalogue entry.
 
-### NASA
+## Refresh scheduling
 
-Use the NASA Images and Video Library endpoints at `images.nasa.gov` for discovery and metadata. Treat API results as candidate records only. API availability does not establish copyright status. Follow source-page and asset-level rights evidence before admission.
+Cosmos does not assume any background scheduler runs while the TV is idle or dreaming. A refresh starts only:
 
-### ESA
+- when the app is opened, if one is due;
+- when the screensaver starts, if one is due;
+- when the user selects **Refresh images now**.
 
-Limit the initial ESA integration to individually verified ESA/Hubble assets carrying an explicitly applicable licence such as CC BY 4.0. Do not treat the general ESA multimedia archive as uniformly reusable. Any additional ESA collection or licence requires a documented policy decision before implementation.
-
-## Rights validation and catalogue admission
-
-Provider adapters return candidate metadata. A separate evidence verifier must establish asset-specific rights for the intended use and territory; the `LicenceValidator` checks that attestation and returns a rights clearance or an explicit rejection. A rights clearance alone is not catalogue admission: the file and complete provenance must also pass the admission checks. Unknown, missing, contradictory, or ambiguous rights evidence means rejection. The current validator has no production verifier and rejects by default.
-
-Persist the source page, original asset URL, creator/credit, exact licence or public-domain basis, evidence URL, retrieval and validation timestamps, policy version, checksum, and alteration status. Keep attribution data available to the renderer.
-
-## Local persistence and downloads
-
-Use Room for catalogue records and provenance, DataStore for preferences, and app-private storage for downloaded image files. Downloads go directly from the TV to the source provider. Validate response type, dimensions, file size, checksum, and rights before marking an asset displayable.
-
-The screensaver must work offline from the local cache. Cache eviction must never remove the only usable image before a replacement is safely downloaded and validated.
-
-## Scheduling
-
-WorkManager may be evaluated for deferrable discovery and download work, but do not assume it runs while the TV is in standby or during screensaver operation. Confirm actual scheduling and lifecycle behaviour on the target device. The screensaver itself should not depend on background work.
+A refresh is due 20 hours after the last attempt, or 10 minutes after it if no images are available. Runs are serialised on one low-priority background thread. The screensaver always plays from the local cache and never waits for the network.
 
 ## Rendering
 
-- Preserve source aspect ratio; never stretch.
-- Prefer appropriately sized source assets for 4K output.
-- Do not upscale small images merely to fill the screen.
-- Use a restrained neutral background for non-16:9 images.
-- Provide a configurable slideshow interval (30 seconds initially).
-- Randomise selection without immediate repeats.
-- Use a restrained crossfade; optional motion must be subtle and disableable.
-- Keep attribution visible and legible without dominating the image.
+- Images are scaled to fit (`ArtworkViewport.fit`) and never cropped, stretched or upscaled beyond fit. The background is black.
+- Before display, the file's SHA-256 is checked against the catalogue. If it does not match, the entry is removed.
+- Decoding uses a power-of-two sample size bounded to 2560×1440, which limits memory on 4K panels.
+- Images cross-fade over 1.5 seconds. The interval is user-selectable from 30 seconds to 10 minutes, with a default of 60 seconds.
+- Selection shuffles through every available image before repeating and never shows the same image twice in a row.
+- Each image shows its title, the full unaltered credit line, the source, the licence name and the source page. The caption is on a translucent panel that alternates corners to reduce burn-in risk.
+- If no images are available yet, the original synthetic starfield is shown with a status message.
 
 ## Privacy and network behaviour
 
-No telemetry, analytics, tracking, accounts, or advertising. Network requests are limited to direct source discovery and asset downloads, initiated according to user settings and platform lifecycle constraints. No image or usage data is sent to Cosmos-operated infrastructure because none exists.
-
-## Initial dependencies
-
-- Kotlin and Android Gradle Plugin.
-- AndroidX / native Android APIs, including `DreamService`.
-- Compose for regular settings UI.
-- Room for local catalogue metadata.
-- DataStore for preferences.
-- Coil or an equivalent maintained image-loading library, subject to TV/lifecycle suitability.
-- JUnit and Android instrumented tests.
-
-Confirm current Android SDK, target API, TV compatibility, Play policy, and device minimum API requirements before fixing project values.
+The app has no telemetry, analytics, tracking, accounts or advertising. The only permission is `INTERNET`, and cleartext traffic is disabled. Requests go only to the allow-listed ESA/Hubble and ESA/Webb hosts and identify the app with a plain `Cosmos/<version>` User-Agent. All data stays in app-private storage. `allowBackup` is false.

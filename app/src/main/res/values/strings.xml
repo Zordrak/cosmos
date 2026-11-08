@@ -3,8 +3,33 @@
     <string name="app_name">Cosmos</string>
     <string name="dream_name">Cosmos</string>
     <string name="home_title">Cosmos screensaver</string>
-    <string name="home_description">This is the Milestone 001 screensaver proof of concept.</string>
-    <string name="home_instructions">To test it, open your TV\'s screensaver settings and select Cosmos.</string>
+    <string name="home_description">Cosmos shows ESA/Hubble and ESA/Webb space imagery as your TV screensaver. Each image is checked individually for a Creative Commons Attribution 4.0 licence before it is downloaded, and its full credit is shown on screen. To use it, open your TV\'s screensaver settings and select Cosmos.</string>
+    <string name="home_preview">Preview</string>
+    <string name="home_refresh">Refresh images now</string>
     <string name="home_open_settings">Open screensaver settings</string>
     <string name="home_settings_unavailable">Unable to open screensaver settings automatically. Open them from your TV\'s system settings and select Cosmos.</string>
+    <string name="home_interval">Change image every %1$s</string>
+    <string name="home_source">%1$s: %2$s</string>
+    <string name="home_on">on</string>
+    <string name="home_off">off</string>
+    <string name="home_clear">Clear downloaded images</string>
+    <string name="home_clear_confirm">Press again to clear</string>
+    <string name="home_refreshing">Downloading and checking images…</string>
+    <string name="home_last_refresh">Last refresh %1$s: %2$s</string>
+    <string name="home_no_sources">All image sources are switched off.</string>
+    <string name="home_privacy">Cosmos connects only to esahubble.org and esawebb.org. It has no account, analytics, tracking or advertising, and everything it downloads stays on this TV. Images that do not clearly carry an applicable licence are skipped.</string>
+    <string name="slideshow_fetching">Fetching space imagery…</string>
+    <string name="slideshow_empty">No images yet. Open Cosmos to download images.</string>
+    <plurals name="home_image_count">
+        <item quantity="one">%d image ready</item>
+        <item quantity="other">%d images ready</item>
+    </plurals>
+    <plurals name="seconds">
+        <item quantity="one">%d second</item>
+        <item quantity="other">%d seconds</item>
+    </plurals>
+    <plurals name="minutes">
+        <item quantity="one">%d minute</item>
+        <item quantity="other">%d minutes</item>
+    </plurals>
 </resources>

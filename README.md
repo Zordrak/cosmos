@@ -1,43 +1,36 @@
 # Cosmos
 
-A native Android TV / Google TV screensaver for space imagery from NASA and ESA.
+A native Android TV / Google TV screensaver showing space imagery from ESA/Hubble and ESA/Webb.
 
-Cosmos is designed to run entirely on the user's television. It has no backend, hosted catalogue, CDN, analytics, accounts, advertising, subscriptions, or recurring infrastructure costs. Future milestones will retrieve approved imagery directly from source providers and keep its cache and metadata locally on the device; the current proof of concept does not access the network.
+Cosmos is designed to run entirely on the user's television. It has no backend, hosted catalogue, CDN, analytics, accounts, advertising, subscriptions, or recurring infrastructure costs. The television downloads rights-validated images directly from the source sites and keeps the image cache and provenance metadata locally.
 
 ## Project principles
 
 - Android TV and Google TV first; native Kotlin implementation.
 - Register as a standard Android screensaver using `DreamService`, selectable through the TV's normal settings UI.
-- NASA and ESA sources only.
+- Approved sources only: currently ESA/Hubble and ESA/Webb (CC BY 4.0). NASA endpoints are excluded until per-asset rights can be established ([ADR 0003](docs/decisions/0003-esa-sources-and-nasa-exclusion.md)).
 - Per-asset rights validation, with a fail-closed policy. An asset with unclear rights is excluded.
 - Direct source-to-device downloads; no Cosmos image hosting or redistribution.
 - Local image cache and provenance records.
 - No telemetry, tracking, accounts, advertising, or paid features.
 
-## Current milestone
+## Current state — version 0.2.0
 
-**Milestone 001 — native screensaver proof of concept.**
+Milestone 001 (the DreamService proof of concept) was accepted on a Sony XR-65X90L. The full application is implemented, and its physical-device checks are listed in [testing](docs/testing.md).
 
-Before implementing image discovery, prove that an ordinary installable APK can be selected as the screensaver on a physical Google TV, starts on idle, displays a synthetic test image correctly, and exits cleanly on user input.
+- **Screensaver:** a cross-fading slideshow of cached images, fitted without cropping. Each image always shows its title, full credit, source and licence.
+- **Home screen (D-pad):** shows status, and lets you preview the slideshow, refresh images, open the system screensaver settings, choose the interval (30 s–10 min), switch Hubble and Webb on or off, and clear downloaded images.
+- **Downloads:** run when the app is opened, when the screensaver starts and a refresh is due, or on request. Every asset must pass the rights verifier and the fail-closed `LicenceValidator` before admission. The cache is capped at 60 images and 400 MB.
+- **Permissions:** `INTERNET` only, with HTTPS restricted to an allow-list of hosts.
 
-See [the architecture](docs/architecture.md), [image licensing policy](docs/image-licensing.md), [testing plan](docs/testing.md), [ADR 0001](docs/decisions/0001-native-dreamservice.md), and [ADR 0002](docs/decisions/0002-rights-evidence-gate.md).
-
+See [the architecture](docs/architecture.md), [image licensing policy](docs/image-licensing.md), [testing plan](docs/testing.md), [ADR 0001](docs/decisions/0001-native-dreamservice.md), [ADR 0002](docs/decisions/0002-rights-evidence-gate.md), and [ADR 0003](docs/decisions/0003-esa-sources-and-nasa-exclusion.md).
 ## Image rights
 
-The MIT licence in this repository applies to Cosmos source code only. It does not apply to NASA or ESA imagery. No third-party image assets are included in the repository. Every image must carry a recorded, verifiable rights basis before it can be admitted to the catalogue.
+The MIT licence in this repository applies to Cosmos source code only. It does not apply to ESA, NASA or any other imagery; displayed images remain under their own licences and credits. No third-party image assets are included in the repository. Every image must carry a recorded, verifiable rights basis before it can be admitted to the catalogue.
 
 ## Development
 
 The initial implementation is intentionally a single Android application with clear package boundaries. Avoid introducing a backend or unnecessary modules.
-
-### Current proof of concept
-
-The M001 branch contains:
-- A native `DreamService` registration and minimal TV launcher activity, with manual guidance if the system settings shortcut is unavailable.
-- Original procedural synthetic artwork rendered in a fixed 16:9 viewport.
-- Unit tests for 4K, 4:3, and ultrawide viewport fitting and the fixture's corner markers.
-- A standalone rights gate that rejects by default; no real evidence verifier or image ingestion exists yet.
-- A GitHub Actions build that produces a debug APK artifact.
 
 ### Build
 

@@ -2,7 +2,7 @@
 
 ## Milestone 001 — native screensaver proof of concept
 
-Do not implement image-provider discovery or catalogue ingestion until this milestone passes on the target physical television.
+**Status: accepted.** The user confirmed the proof of concept on the Sony XR-65X90L (see the physical-device record below). Discovery and ingestion are now enabled ([ADR 0003](decisions/0003-esa-sources-and-nasa-exclusion.md)).
 
 ### Acceptance criteria
 
@@ -24,28 +24,20 @@ Use a synthetic, project-created test image with a known aspect ratio and visibl
 
 ## Unit tests
 
-- Licence validator: positive and negative cases for every allowed rights category.
-- Fail-closed behaviour for missing, contradictory, malformed, or unsupported rights evidence.
-- Provider metadata mapping.
-- Image selection randomisation and no-immediate-repeat behaviour.
-- Aspect-ratio and dimension validation.
-- Checksum and cache integrity.
-- Cache eviction safety.
-- Attribution formatting and persistence.
+Run `gradle --no-daemon :app:testDebugUnitTest`. All fixtures are synthetic: hand-written HTML and RSS modelled on the page structure, and byte arrays standing in for JPEGs. No real images or copied page content are used.
 
-The standalone rights validator is tested with synthetic, explicitly injected evidence. There is no production evidence verifier yet, and those tests do not establish the rights of any real asset.
+| Test | Covers |
+| --- | --- |
+| `LicenceValidatorTest` | Fail-closed rights gate: every rejection reason, evidence binding, and provenance preservation |
+| `DjangoplicityParserTest` | Hubble- and Webb-style asset pages, renditions restricted to the site CDN, exception wording, missing notice or policy link, feed and listing discovery, policy statement changes, and entity decoding |
+| `ApprovedEndpointsTest` | HTTPS-only host allow-list, including lookalike hosts, user info, ports, and NASA hosts |
+| `CatalogueRefresherTest` | End-to-end admission with full provenance, and every rejection path: non-Observation, exception wording, missing notice, portrait, too small, dimension mismatch, no rendition, non-JPEG, too large, and unknown territory. Also covers the rejection retry window, policy-change withdrawal, offline retention, enabled sources, capacity limits, per-refresh caps, and concurrent removal |
+| `CatalogueStoreTest` | JSON round trip; rejection of unsafe file names and entries without provenance; persistence, removal and clearing; corrupt-file recovery |
+| `SlideshowTest` | No-repeat shuffle order, attribution text, and decode sample size |
+| `RefreshCoordinatorTest` | Refresh staleness rules |
+| `ArtworkViewportTest`, `SyntheticArtworkGeometryTest`, `DreamSettingsLauncherTest` | Aspect-ratio fitting, the synthetic fixture, and the settings shortcut fallback |
 
-## Integration tests
-
-- NASA candidate discovery and metadata parsing using recorded synthetic/mock responses.
-- ESA/Hubble metadata parsing using synthetic/mock responses.
-- Download failure, timeout, invalid MIME type, truncated file, and checksum mismatch.
-- Rights rejection before catalogue admission.
-- Offline screensaver startup and playback from cache.
-- Database migration and preference persistence.
-
-Tests must not require live external APIs or real third-party image files. Any fixtures containing real external metadata must be reviewed for licensing and should be avoided where synthetic data is sufficient.
-
+Tests do not contact live services. During development, the parser and the complete admission pipeline were also exercised once against the live ESA/Hubble and ESA/Webb sites in a temporary, uncommitted test (2026-11-09). Both policies matched. The pipeline admitted 4 Observation images with full credits and correctly rejected a Collage.
 ## Physical-device validation
 
 Test on the Sony XR-65X90L and, where possible, a second Android TV / Google TV device. Validate screensaver selection, idle activation, remote dismissal, wake behaviour, orientation/aspect ratio, memory pressure, repeated lifecycle transitions, app updates, and reboot. Test offline playback once network-dependent downloading or caching exists.
@@ -71,11 +63,19 @@ The user then restored the original Cosmos selection and returned to Home. While
 
 This verifies the separate test package's versioned install/update path, but **does not verify that Android retains the selection when the selected DreamService app itself is upgraded**, because the user restored the original selection before the update. No application-data migration was exercised. The test packages are session artifacts, not repository files. A physical offline test remains deferred until the app has network-dependent functionality.
 
-## Later milestones
+## Full application — physical checks (pending)
 
-- M002: local catalogue, provenance schema, and fail-closed rights validator.
-- M003: NASA discovery and approved-asset ingestion.
-- M004: narrowly scoped ESA/Hubble CC BY 4.0 provider.
-- M005: slideshow renderer, transitions, attribution, and cache management.
-- M006: settings, quality controls, category selection, and robust offline behaviour.
-- M007: release hardening, current Play requirements, CI, and publication.
+On the Sony XR-65X90L:
+
+1. Install version 0.2.0 and open Cosmos. Confirm the status shows images downloading and then becoming ready.
+2. **Preview** shows images fitted without cropping. Each image has a readable title, full credit, source, and licence, and the caption alternates corners. Any remote key exits.
+3. Interval, source on/off, **Refresh images now**, and **Clear downloaded images** all work with the D-pad.
+4. Select Cosmos as the screensaver. When idle, the slideshow starts and cross-fades at the chosen interval. The remote dismisses it.
+5. With the network disconnected, the screensaver still plays cached images.
+6. Leave it running for several hours. Check memory and stability and confirm there are no crashes (`adb logcat -s CosmosDream CosmosSlideshow CosmosRefresh`).
+7. Upgrade from 0.1.0 to 0.2.0 using the same signing key, and confirm the screensaver selection is retained.
+
+## Remaining work
+
+- Release signing and Play publication (current Android TV requirements, data safety form, and store listing).
+- Optional: more ESA/Hubble or ESA/Webb discovery listings, and a manual image browser.
