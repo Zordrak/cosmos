@@ -28,4 +28,28 @@ The MIT licence in this repository applies to Cosmos source code only. It does n
 
 ## Development
 
-The initial implementation is intentionally a single Android application with clear package boundaries. Avoid introducing a backend or unnecessary modules. See [AGENTS.md](AGENTS.md) and [.github/copilot-instructions.md](.github/copilot-instructions.md) for engineering constraints.
+The initial implementation is intentionally a single Android application with clear package boundaries. Avoid introducing a backend or unnecessary modules.
+
+### Current proof of concept
+
+The M001 branch contains:
+- A native `DreamService` registration and minimal TV launcher activity.
+- Original procedural synthetic artwork rendered in a fixed 16:9 viewport.
+- Unit tests for 4K, 4:3, and ultrawide viewport fitting.
+- A GitHub Actions build that produces a debug APK artifact.
+
+### Build
+
+Requirements: JDK 17, Android SDK Platform 36, Android Build Tools 36.0.0, and Gradle 9.6.0.
+
+From the repository root:
+
+```sh
+gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
+```
+
+The debug APK is produced at `app/build/outputs/apk/debug/app-debug.apk`. The debug application ID is `com.cosmos.screensaver.debug`.
+
+The GitHub Actions workflow also uploads the debug APK as a 14-day artifact for each successful build. It is a build artifact only; it is not yet a release.
+
+See [platform compatibility](docs/platform-compatibility.md), [AGENTS.md](AGENTS.md), and [.github/copilot-instructions.md](.github/copilot-instructions.md) for toolchain decisions and engineering constraints.
