@@ -70,7 +70,7 @@ The user has already confirmed that Retro Screensaver Collection appears in the 
 5. Google Play Console Help, [Target API level requirements](https://support.google.com/googleplay/android-developer/answer/11926878) — current Android TV target API submission threshold. Accessed 2026-11-08.
 6. Android Developers, [Android Gradle Plugin 9.5.0 release notes](https://developer.android.com/build/releases/agp-9-5-0-release-notes) — API support and Gradle/JDK compatibility. Accessed 2026-11-08.
 7. Android Developers, [About Android Gradle Plugin](https://developer.android.com/build/releases/about-agp) — Gradle compatibility table. Accessed 2026-11-08.
-8. Kotlin, [Kotlin release process](https://kotlinlang.org/docs/plugin-releases.html) — Kotlin 2.4.21 release. Accessed 2026-11-08.
+8. Android Developers, [Migrate to built-in Kotlin](https://developer.android.com/build/migrate-to-built-in-kotlin) — AGP 9.0+ enables built-in Kotlin and derives the JVM target from Java compile compatibility. Accessed 2026-11-08.
 9. Sony UK, [XR-65X90L specifications](https://www.sony.co.uk/electronics/support/televisions-projectors-lcd-tvs-android-/xr-65x90l/specifications) — model year, display resolution/type, Google TV and Android TV. Accessed 2026-11-08.
 
 ## Remaining verification
