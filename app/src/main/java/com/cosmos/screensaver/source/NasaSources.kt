@@ -140,7 +140,9 @@ internal object NasaLibraryParser {
             """astronauts?|crew|portraits?|ceremony|briefing|interview|employees?|team|launch ?pad|rockets?|""" +
             """rovers?|landers?|facility|laboratory|simulation|simulated|logo|poster|patch|""" +
             """power|fission|reactors?|testbeds?|tests?|testing|filming|engineers?|technicians?|scientists?|""" +
-            """workers?|building|hangar|prototype|equipment|exhibit|mission control)\b""",
+            """workers?|building|hangar|prototype|equipment|exhibit|mission control|mirrors?|deploy(?:ed|ment)?|clean ?room|""" +
+            """transporters?|town hall|hall|shipping|shipped|assembly|integration|cryo\w*|vacuum|chamber|sunshield|installation|""" +
+            """unveil(?:ed|ing)?|revealed|press|conference|visit|tour|event|panel)\b""",
         RegexOption.IGNORE_CASE
     )
 
@@ -152,8 +154,8 @@ internal object NasaLibraryParser {
 
     /** An item must look astronomical: one of these must appear in the title, keywords or description. */
     private val ASTRONOMICAL = Regex(
-        """galax|nebula|\bstars?\b|stellar|cluster|supernova|hubble|webb|jwst|chandra|spitzer|comet|planet|jupiter|""" +
-            """saturn|\bmars\b|\bmoon\b|lunar|\bsun\b|solar|aurora|milky way|cosmic|universe|telescope|\bearth\b|""" +
+        """galax|nebula|\bstars?\b|stellar|cluster|supernova|chandra|spitzer|comet|planet|jupiter|""" +
+            """saturn|\bmars\b|\bmoon\b|lunar|\bsun\b|solar|aurora|milky way|cosmic|universe|\bearth\b|""" +
             """nasa image of the day|asteroid|eclipse|constellation|pulsar|black hole|quasar|exoplanet""",
         RegexOption.IGNORE_CASE
     )
@@ -262,7 +264,7 @@ internal class NasaLibraryAdapter(private val queriesPerRefresh: Int = 3) : Sour
 
     companion object {
         val QUERIES = listOf(
-            "nebula", "galaxy", "hubble deep field", "webb telescope", "supernova remnant", "star cluster",
+            "nebula", "galaxy", "hubble deep field", "webb deep field", "supernova remnant", "star cluster",
             "planetary nebula", "milky way", "jupiter", "saturn", "mars surface", "moon surface", "comet",
             "solar flare", "aurora", "earth from space", "spiral galaxy", "star forming region"
         )
