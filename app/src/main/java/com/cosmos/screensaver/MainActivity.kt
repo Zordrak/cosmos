@@ -1,9 +1,12 @@
 package com.cosmos.screensaver
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
-import android.content.Intent
+import android.util.Log
+import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -30,18 +33,46 @@ class MainActivity : Activity() {
             setTextColor(0xFFD5E2F5.toInt())
             setPadding(0, 24, 0, 24)
         }
+        val settingsStatus = TextView(this).apply {
+            textSize = 16f
+            setTextColor(0xFFFFCF78.toInt())
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
         val settingsButton = Button(this).apply {
-            text = "Open screensaver settings"
+            text = getString(R.string.home_open_settings)
             setOnClickListener {
-                runCatching {
-                    startActivity(Intent(Settings.ACTION_DREAM_SETTINGS))
-                }
+                settingsStatus.text = ""
+                launchDreamSettings(
+                    launch = { startActivity(Intent(Settings.ACTION_DREAM_SETTINGS)) },
+                    onUnavailable = { error ->
+                        Log.w(TAG, "Unable to open system screensaver settings", error)
+                        settingsStatus.setText(R.string.home_settings_unavailable)
+                    }
+                )
             }
         }
 
         layout.addView(title)
         layout.addView(description)
         layout.addView(settingsButton)
+        layout.addView(settingsStatus)
         setContentView(layout)
+    }
+
+    companion object {
+        private const val TAG = "CosmosMain"
+    }
+}
+
+internal fun launchDreamSettings(
+    launch: () -> Unit,
+    onUnavailable: (RuntimeException) -> Unit
+) {
+    try {
+        launch()
+    } catch (error: ActivityNotFoundException) {
+        onUnavailable(error)
+    } catch (error: SecurityException) {
+        onUnavailable(error)
     }
 }

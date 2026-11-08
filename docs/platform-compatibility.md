@@ -20,7 +20,7 @@
 | TV manifest | Leanback feature and Leanback launcher activity; touchscreen not required | Required for Android TV identification/discovery |
 | Native ABIs | Keep default supported Android ABIs; no NDK/native dependencies in POC | Avoid unnecessary native code; Play TV 32-/64-bit rule applies at publication |
 
-These are initial project defaults, not a claim that the Sony firmware/API level has been directly inspected. The target device's OS version and actual install/runtime behaviour remain physical-device checks.
+These are initial project defaults. The tested Sony reported Android TV OS 12 (API 31); see the [physical-device evidence](testing.md#sony-xr-65x90l--2026-11-08) for the installed build and observed behaviour.
 
 ## DreamService registration
 
@@ -32,7 +32,7 @@ The Android `DreamService` reference specifies:
 
 The platform documentation says the service permission is required when targeting API 21 or later. The content view should be set during `onAttachedToWindow()`, not `onCreate()`. A non-interactive dream (the default) dismisses on the first input event. Fullscreen mode hides system UI.
 
-The proof of concept will set a custom synthetic artwork view in `onAttachedToWindow()`, mark the service non-interactive, and use fullscreen mode. No network, storage, image library, or runtime permission is needed.
+The proof of concept sets a custom synthetic artwork view in `onAttachedToWindow()`, marks the service non-interactive, and uses fullscreen mode. No network, storage, image library, or runtime permission is needed.
 
 ## Android TV manifest requirements
 
@@ -57,9 +57,9 @@ The POC builds a debug APK for direct installation. Play publication packaging (
 
 ## Device-specific evidence
 
-Sony's official UK specification page identifies the XR-65X90L as a 2023 Google TV / Android TV model with a 3840x2160 LCD panel and Google Play Store. It does not publish the installed Android OS/API level. The TV's installed firmware and OS version must therefore be recorded during the physical POC.
+Sony's official UK specification page identifies the XR-65X90L as a 2023 Google TV / Android TV model with a 3840x2160 LCD panel and Google Play Store. It does not publish the installed Android OS/API level; the tested TV's reported version and build are recorded in the physical-device evidence.
 
-The user has already confirmed that Retro Screensaver Collection appears in the Sony's system screensaver selector after ordinary Play Store installation, without ADB. This is useful platform evidence, but it does not substitute for testing Cosmos itself.
+The user also confirmed that Retro Screensaver Collection appears in the Sony's system screensaver selector after ordinary Play Store installation, without ADB. Cosmos was tested independently as documented in the physical-device evidence.
 
 ## Authoritative sources
 
@@ -75,8 +75,7 @@ The user has already confirmed that Retro Screensaver Collection appears in the 
 
 ## Remaining verification
 
-- Read installed Android/Google TV version and build number from the target Sony.
-- Build and install the APK on the target.
-- Confirm screensaver registration and lifecycle using the normal TV settings UI.
+- Physically verify the revised synthetic fixture's edge markers and a distinct-version app upgrade.
+- Test other devices and lifecycle cases listed in the physical-device validation plan where available.
 - Revisit minSdk and targetSdk if device evidence or current Play policy changes.
 - Before Play release, verify current AAB, 32-/64-bit, 16 KB page-size and listing requirements, including any new policy changes.

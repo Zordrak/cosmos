@@ -13,8 +13,8 @@ internal data class ArtworkViewport(
         fun fit(
             containerWidth: Int,
             containerHeight: Int,
-            contentWidth: Float = 1920f,
-            contentHeight: Float = 1080f
+            contentWidth: Float = SyntheticArtworkGeometry.WIDTH,
+            contentHeight: Float = SyntheticArtworkGeometry.HEIGHT
         ): ArtworkViewport {
             require(containerWidth > 0 && containerHeight > 0)
             require(contentWidth > 0f && contentHeight > 0f)

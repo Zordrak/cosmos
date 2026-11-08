@@ -51,14 +51,19 @@ private class CosmosTestArtworkView(context: Context) : View(context) {
     private val stars = List(420) { index ->
         val random = Random(index * 7919 + 17)
         Star(
-            x = random.nextFloat() * ART_WIDTH,
-            y = random.nextFloat() * ART_HEIGHT,
+            x = random.nextFloat() * SyntheticArtworkGeometry.WIDTH,
+            y = random.nextFloat() * SyntheticArtworkGeometry.HEIGHT,
             radius = 0.7f + random.nextFloat() * 2.0f,
             alpha = 90 + random.nextInt(166)
         )
     }
 
     private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        strokeWidth = SyntheticArtworkGeometry.MARKER_STROKE_WIDTH
+        strokeCap = Paint.Cap.SQUARE
+    }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         typeface = Typeface.create("sans-serif", Typeface.NORMAL)
@@ -79,6 +84,7 @@ private class CosmosTestArtworkView(context: Context) : View(context) {
         drawNebula(canvas)
         drawStars(canvas)
         drawTestLabel(canvas)
+        drawEdgeMarkers(canvas)
 
         canvas.restoreToCount(checkpoint)
     }
@@ -130,15 +136,17 @@ private class CosmosTestArtworkView(context: Context) : View(context) {
         canvas.drawText("SYNTHETIC ARTWORK  -  NO NETWORK REQUIRED", 92f, 1010f, textPaint)
     }
 
+    private fun drawEdgeMarkers(canvas: Canvas) {
+        SyntheticArtworkGeometry.cornerMarkers.forEach { marker ->
+            canvas.drawLine(marker.x, marker.y, marker.horizontalEndX, marker.y, markerPaint)
+            canvas.drawLine(marker.x, marker.y, marker.x, marker.verticalEndY, markerPaint)
+        }
+    }
+
     private data class Star(
         val x: Float,
         val y: Float,
         val radius: Float,
         val alpha: Int
     )
-
-    companion object {
-        private const val ART_WIDTH = 1920f
-        private const val ART_HEIGHT = 1080f
-    }
 }

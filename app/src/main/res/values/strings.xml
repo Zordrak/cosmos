@@ -5,4 +5,6 @@
     <string name="home_title">Cosmos screensaver</string>
     <string name="home_description">This is the Milestone 001 screensaver proof of concept.</string>
     <string name="home_instructions">To test it, open your TV\'s screensaver settings and select Cosmos.</string>
+    <string name="home_open_settings">Open screensaver settings</string>
+    <string name="home_settings_unavailable">Unable to open screensaver settings automatically. Open them from your TV\'s system settings and select Cosmos.</string>
 </resources>

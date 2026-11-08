@@ -2,7 +2,7 @@
 
 A native Android TV / Google TV screensaver for space imagery from NASA and ESA.
 
-Cosmos is designed to run entirely on the user's television. It has no backend, hosted catalogue, CDN, analytics, accounts, advertising, subscriptions, or recurring infrastructure costs. The app discovers and retrieves approved imagery directly from source providers and keeps its cache and metadata locally on the device.
+Cosmos is designed to run entirely on the user's television. It has no backend, hosted catalogue, CDN, analytics, accounts, advertising, subscriptions, or recurring infrastructure costs. Future milestones will retrieve approved imagery directly from source providers and keep its cache and metadata locally on the device; the current proof of concept does not access the network.
 
 ## Project principles
 
@@ -20,7 +20,7 @@ Cosmos is designed to run entirely on the user's television. It has no backend, 
 
 Before implementing image discovery, prove that an ordinary installable APK can be selected as the screensaver on a physical Google TV, starts on idle, displays a synthetic test image correctly, and exits cleanly on user input.
 
-See [the architecture](docs/architecture.md), [image licensing policy](docs/image-licensing.md), [testing plan](docs/testing.md), and [ADR 0001](docs/decisions/0001-native-dreamservice.md).
+See [the architecture](docs/architecture.md), [image licensing policy](docs/image-licensing.md), [testing plan](docs/testing.md), [ADR 0001](docs/decisions/0001-native-dreamservice.md), and [ADR 0002](docs/decisions/0002-rights-evidence-gate.md).
 
 ## Image rights
 
@@ -33,9 +33,10 @@ The initial implementation is intentionally a single Android application with cl
 ### Current proof of concept
 
 The M001 branch contains:
-- A native `DreamService` registration and minimal TV launcher activity.
+- A native `DreamService` registration and minimal TV launcher activity, with manual guidance if the system settings shortcut is unavailable.
 - Original procedural synthetic artwork rendered in a fixed 16:9 viewport.
-- Unit tests for 4K, 4:3, and ultrawide viewport fitting.
+- Unit tests for 4K, 4:3, and ultrawide viewport fitting and the fixture's corner markers.
+- A standalone rights gate that rejects by default; no real evidence verifier or image ingestion exists yet.
 - A GitHub Actions build that produces a debug APK artifact.
 
 ### Build

@@ -40,7 +40,7 @@ Limit the initial ESA integration to individually verified ESA/Hubble assets car
 
 ## Rights validation and catalogue admission
 
-Provider adapters return candidate metadata. A separate `LicenceValidator` decides whether an asset can enter the local approved catalogue. Unknown, missing, contradictory, or ambiguous rights evidence means rejection.
+Provider adapters return candidate metadata. A separate evidence verifier must establish asset-specific rights for the intended use and territory; the `LicenceValidator` checks that attestation and returns a rights clearance or an explicit rejection. A rights clearance alone is not catalogue admission: the file and complete provenance must also pass the admission checks. Unknown, missing, contradictory, or ambiguous rights evidence means rejection. The current validator has no production verifier and rejects by default.
 
 Persist the source page, original asset URL, creator/credit, exact licence or public-domain basis, evidence URL, retrieval and validation timestamps, policy version, checksum, and alteration status. Keep attribution data available to the renderer.
 
