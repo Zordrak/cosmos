@@ -17,6 +17,9 @@ internal interface Fetcher {
     /** Fetches a UTF-8 document, failing if it exceeds [maxBytes]. */
     fun fetchText(url: String, maxBytes: Int = MAX_DOCUMENT_BYTES): String
 
+    /** Returns up to [maxBytes] from the start of a resource, using a range request where supported. */
+    fun fetchPrefix(url: String, maxBytes: Int = ImageHeader.PREFIX_BYTES): ByteArray
+
     /** Streams a binary resource to [destination], failing if it exceeds [maxBytes]. */
     fun download(url: String, destination: File, maxBytes: Long = MAX_IMAGE_BYTES): Download
 
@@ -41,6 +44,24 @@ internal class HttpsFetcher(private val userAgent: String) : Fetcher {
         try {
             val bytes = connection.inputStream.use { readLimited(it, maxBytes.toLong()) }
             return String(bytes, Charsets.UTF_8)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    override fun fetchPrefix(url: String, maxBytes: Int): ByteArray {
+        val connection = open(url, rangeEnd = maxBytes - 1)
+        try {
+            return connection.inputStream.use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(32 * 1024)
+                while (output.size() < maxBytes) {
+                    val read = input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                }
+                output.toByteArray()
+            }
         } finally {
             connection.disconnect()
         }
@@ -77,7 +98,7 @@ internal class HttpsFetcher(private val userAgent: String) : Fetcher {
         }
     }
 
-    private fun open(initialUrl: String): HttpURLConnection {
+    private fun open(initialUrl: String, rangeEnd: Int? = null): HttpURLConnection {
         var url = initialUrl
         repeat(MAX_REDIRECTS + 1) {
             if (!ApprovedEndpoints.isApproved(url)) throw EndpointNotApprovedException(url)
@@ -86,8 +107,9 @@ internal class HttpsFetcher(private val userAgent: String) : Fetcher {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
             connection.setRequestProperty("User-Agent", userAgent)
+            if (rangeEnd != null) connection.setRequestProperty("Range", "bytes=0-$rangeEnd")
             when (val code = connection.responseCode) {
-                HttpURLConnection.HTTP_OK -> return connection
+                HttpURLConnection.HTTP_OK, HttpURLConnection.HTTP_PARTIAL -> return connection
                 in 300..399 -> {
                     val location = connection.getHeaderField("Location")
                     connection.disconnect()

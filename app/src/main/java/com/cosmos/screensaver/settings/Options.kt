@@ -1,6 +1,7 @@
 package com.cosmos.screensaver.settings
 
 import com.cosmos.screensaver.catalogue.CatalogueEntry
+import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.rights.LicenceValidator
 import com.cosmos.screensaver.rights.RightsBasis
 
@@ -12,33 +13,43 @@ internal enum class DisplayMode {
     /** Shows the whole image without distortion, leaving black bars. */
     FIT,
 
-    /** Fills when that crops little of the image, otherwise fits. */
-    AUTO,
+    /** Covers the whole screen and distorts the aspect ratio. Only ever used when chosen. */
+    STRETCH,
 
     /** One image pixel per physical screen pixel, centred and cropped to the screen. */
     ORIGINAL,
 
-    /** Covers the whole screen and distorts the aspect ratio. Only ever used when chosen. */
-    STRETCH
+    /** Fills when that crops little of the image, otherwise fits. */
+    AUTO
 }
 
 internal enum class CaptionMode { SUBTLE, DETAILED, OFF }
 
 internal enum class LicenceMode {
-    /** Personal use: any publicly available image from an enabled source. */
+    /** Any publicly available image from an enabled source. */
     ANY_AVAILABLE,
 
-    /** Only images individually verified as CC BY 4.0, with fail-closed rights validation. */
+    /** Only images verified as CC BY 4.0 or as NASA public-domain works. */
     OPEN_LICENCE_ONLY
 }
 
-/** A minimum resolution. Images within [TOLERANCE] of it still qualify. */
+/** Which sources are switched on, as a named group. */
+internal enum class CollectionPreset(val providers: Set<AssetProvider>?) {
+    EVERYTHING(AssetProvider.entries.toSet()),
+    DEEP_SPACE(setOf(AssetProvider.ESA_HUBBLE, AssetProvider.ESA_WEBB, AssetProvider.ESO, AssetProvider.NOIRLAB)),
+    PICTURE_OF_THE_DAY(setOf(AssetProvider.APOD)),
+    NASA_ONLY(setOf(AssetProvider.NASA, AssetProvider.APOD)),
+
+    /** The sources were toggled individually. */
+    CUSTOM(null)
+}
+
+/** A minimum resolution, applied to both dimensions without tolerance. */
 internal data class Resolution(val width: Int, val height: Int) {
     fun accepts(imageWidth: Int, imageHeight: Int): Boolean =
-        imageWidth >= width * (1 - TOLERANCE) && imageHeight >= height * (1 - TOLERANCE)
+        imageWidth >= width && imageHeight >= height
 
     companion object {
-        const val TOLERANCE = 0.05
         val UHD = Resolution(3840, 2160)
         val FHD = Resolution(1920, 1080)
         val HD = Resolution(1280, 720)
@@ -72,15 +83,20 @@ internal data class ImageSelection(
             append("licence=").append(licenceMode.name)
             if (licenceMode == LicenceMode.OPEN_LICENCE_ONLY) append("/policy").append(LicenceValidator.POLICY_VERSION)
             append(";quality=").append(quality.name)
+            append(";maxEdge=").append(MAX_IMAGE_LONG_EDGE)
+            append(";aspect=").append(MIN_ASPECT_RATIO).append('-').append(MAX_ASPECT_RATIO)
         }
 
     fun licenceAccepts(entry: CatalogueEntry): Boolean = when (licenceMode) {
         LicenceMode.ANY_AVAILABLE -> true
         LicenceMode.OPEN_LICENCE_ONLY ->
-            entry.rightsBasis == RightsBasis.CC_BY_4_0.name && entry.policyVersion == LicenceValidator.POLICY_VERSION
+            entry.policyVersion == LicenceValidator.POLICY_VERSION &&
+                (entry.rightsBasis == RightsBasis.CC_BY_4_0.name || entry.rightsBasis == RightsBasis.NASA_PUBLIC_DOMAIN.name)
     }
 
-    fun meetsMinimum(entry: CatalogueEntry) = quality.minimum?.accepts(entry.widthPx, entry.heightPx) ?: true
+    fun meetsMinimum(entry: CatalogueEntry) =
+        withinMaximum(entry.widthPx, entry.heightPx) &&
+            (quality.minimum?.accepts(entry.widthPx, entry.heightPx) ?: true)
 
     /** True while fallback-quality images should be admitted and shown. */
     fun fallbackActive(entries: List<CatalogueEntry>): Boolean =
@@ -91,12 +107,31 @@ internal data class ImageSelection(
         val licensed = entries.filter(::licenceAccepts)
         val useFallback = fallbackActive(entries)
         return licensed.filter { entry ->
-            meetsMinimum(entry) || (useFallback && quality.fallback?.accepts(entry.widthPx, entry.heightPx) == true)
+            meetsMinimum(entry) ||
+                (useFallback && withinMaximum(entry.widthPx, entry.heightPx) &&
+                    quality.fallback?.accepts(entry.widthPx, entry.heightPx) == true)
         }
     }
 
     companion object {
         /** Below this many qualifying images, [QualityPreference.UHD_PREFERRED] also uses its fallback. */
         const val FALLBACK_TARGET = 20
+
+        /** No commercial TV exceeds 8K, so larger images only waste bandwidth. */
+        const val MAX_IMAGE_LONG_EDGE = 7680
+
+        /** Landscape only: 4:3 up to 21:9. */
+        const val MIN_ASPECT_RATIO = 4.0 / 3.0
+        const val MAX_ASPECT_RATIO = 21.0 / 9.0
+        const val ASPECT_TOLERANCE = 0.02
+
+        fun withinMaximum(width: Int, height: Int): Boolean =
+            width > 0 && height > 0 && maxOf(width, height) <= MAX_IMAGE_LONG_EDGE
+
+        fun suitableAspect(width: Int, height: Int): Boolean {
+            if (width <= 0 || height <= 0) return false
+            val ratio = width.toDouble() / height
+            return ratio >= MIN_ASPECT_RATIO * (1 - ASPECT_TOLERANCE) && ratio <= MAX_ASPECT_RATIO * (1 + ASPECT_TOLERANCE)
+        }
     }
 }

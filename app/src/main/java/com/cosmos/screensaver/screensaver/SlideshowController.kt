@@ -17,6 +17,7 @@ import com.cosmos.screensaver.catalogue.CatalogueEntry
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.source.sha256Of
 import com.cosmos.screensaver.sync.RefreshCoordinator
+import com.cosmos.screensaver.sync.RefreshJobService
 import java.io.File
 import java.io.IOException
 
@@ -40,6 +41,7 @@ internal class SlideshowController(
     fun start() {
         if (worker != null) return
         view.captionMode = settings.captionMode
+        RefreshJobService.ensureScheduled(context)
         val thread = HandlerThread("cosmos-slideshow").also { it.start() }
         worker = thread
         workerHandler = Handler(thread.looper).also { it.post(::advance) }
@@ -75,7 +77,7 @@ internal class SlideshowController(
 
     private fun showNextImage(): Boolean {
         repeat(MAX_ATTEMPTS) {
-            val enabled = settings.enabledSites.map { it.provider }.toSet()
+            val enabled = settings.enabledProviders
             val entries = settings.selection.eligible(store.load().entries.filter { it.provider in enabled })
             val key = order.next(entries.map { it.key }) ?: return false
             val entry = entries.first { it.key == key }
@@ -107,17 +109,18 @@ internal class SlideshowController(
             settings.displayMode, entry.widthPx, entry.heightPx, screenWidth, screenHeight, physicalWidth(screenWidth)
         )
         return try {
-            decode(file, place)?.let { Frame(it, place.destination) }
+            decode(file, place)?.let { Frame(it, place.destination, screenWidth, screenHeight) }
         } catch (error: OutOfMemoryError) {
             Log.w(TAG, "Not enough memory to decode ${entry.key}", error)
+            mainHandler.post { view.useLowResolution() }
             null
         }
     }
 
     private fun screenSize(): Pair<Int, Int> {
         val metrics = context.resources.displayMetrics
-        val width = view.width.takeIf { it > 0 } ?: metrics.widthPixels
-        val height = view.height.takeIf { it > 0 } ?: metrics.heightPixels
+        val width = view.bufferWidth.takeIf { it > 0 } ?: view.width.takeIf { it > 0 } ?: metrics.widthPixels
+        val height = view.bufferHeight.takeIf { it > 0 } ?: view.height.takeIf { it > 0 } ?: metrics.heightPixels
         return width.coerceIn(1, MAX_FRAME_EDGE) to height.coerceIn(1, MAX_FRAME_EDGE)
     }
 
@@ -189,5 +192,5 @@ internal class SlideshowController(
     }
 }
 
-/** A decoded image ready to draw at [destination] in view pixels. */
-internal class Frame(val bitmap: Bitmap, val destination: IntBox)
+/** A decoded image ready to draw at [destination], in a [targetWidth] x [targetHeight] frame. */
+internal class Frame(val bitmap: Bitmap, val destination: IntBox, val targetWidth: Int, val targetHeight: Int)

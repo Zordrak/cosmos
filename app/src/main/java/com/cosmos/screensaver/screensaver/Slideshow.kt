@@ -33,7 +33,12 @@ internal data class Attribution(
         fun of(entry: CatalogueEntry) = Attribution(
             title = entry.title,
             credit = "Credit: ${entry.credit}",
-            source = listOf(entry.sourceLabel, entry.licenceName, displayUrl(entry.sourcePageUrl))
+            source = listOf(
+                entry.sourceLabel,
+                entry.licenceName,
+                displayUrl(entry.licenceUrl),
+                displayUrl(entry.sourcePageUrl)
+            )
                 .filter { it.isNotBlank() }
                 .joinToString("  \u00b7  ")
         )

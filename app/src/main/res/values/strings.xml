@@ -2,12 +2,14 @@
 <resources>
     <string name="app_name">Cosmos</string>
     <string name="dream_name">Cosmos</string>
-    <string name="home_tagline">Space imagery from ESA/Hubble, ESA/Webb, ESO and NOIRLab as your TV screensaver. Images are downloaded straight to this TV and shown from its local cache.</string>
+    <string name="home_tagline">Space imagery from NASA, ESA, ESO and NOIRLab as your TV screensaver. Images are downloaded straight to this TV and shown from its local cache.</string>
+    <string name="home_storage">%1$s used by downloaded images</string>
+    <string name="home_low_space">Not enough free space to download more images (%1$s used)</string>
     <string name="home_settings_unavailable">Unable to open screensaver settings automatically. Open them from your TV\'s system settings and select Cosmos.</string>
     <string name="home_refreshing">Downloading images…</string>
     <string name="home_last_refresh">Last refresh %1$s. %2$s</string>
     <string name="home_no_sources">All image sources are switched off.</string>
-    <string name="home_privacy">No account, analytics, tracking or advertising. Cosmos connects only to the image sources listed here, and everything it downloads stays on this TV.</string>
+    <string name="home_privacy">No account, analytics, tracking or advertising. Everything Cosmos downloads stays on this TV.</string>
 
     <string name="section_screensaver">Screensaver</string>
     <string name="section_display">Display</string>
@@ -24,7 +26,6 @@
     <string name="row_interval_summary">How long each image stays on screen.</string>
     <string name="row_credits">Credits</string>
     <string name="row_quality">Picture quality</string>
-    <string name="row_licence">Licence filter</string>
     <string name="row_refresh">Refresh now</string>
     <string name="row_refresh_summary">Checks the sources for new images. This also happens automatically.</string>
     <string name="row_clear">Clear downloaded images</string>
@@ -43,13 +44,29 @@
     <string name="fit_original">Original size</string>
     <string name="fit_original_summary">One image pixel per screen pixel, centred. Large images are trimmed.</string>
     <string name="fit_stretch">Stretch</string>
-    <string name="fit_stretch_summary">Fills the screen by stretching the picture. Distorts most images.</string>
+    <string name="fit_stretch_summary">Stretches every image to the whole screen, distorting its proportions.</string>
+
+    <string name="credits_off">Off</string>
+    <string name="credits_off_summary">No title or credit is shown on screen.</string>
+    <string name="row_collection">Image collection</string>
+    <string name="row_licence">Only openly licensed images</string>
+    <string name="licence_on_summary">Only images verified as CC BY 4.0 or as NASA public-domain works.</string>
+    <string name="licence_off_summary">Any publicly available image from the sources below.</string>
+    <string name="collection_everything">Everything</string>
+    <string name="collection_everything_summary">All six sources.</string>
+    <string name="collection_deep_space">Deep space</string>
+    <string name="collection_deep_space_summary">Hubble, Webb, ESO and NOIRLab observatory images.</string>
+    <string name="collection_potd">Picture of the day</string>
+    <string name="collection_potd_summary">NASA\'s Astronomy Picture of the Day archive.</string>
+    <string name="collection_nasa">NASA only</string>
+    <string name="collection_nasa_summary">NASA Image Library and Astronomy Picture of the Day.</string>
+    <string name="collection_custom">Custom</string>
+    <string name="collection_custom_summary">Chosen individually under Sources. Select to pick a preset.</string>
 
     <string name="credits_subtle">Subtle</string>
-    <string name="credits_subtle_summary">Small, translucent title and credit in a corner.</string>
+    <string name="credits_subtle_summary">Small, faint title and credit that fade after a few seconds.</string>
     <string name="credits_detailed">Detailed</string>
     <string name="credits_detailed_summary">Title, credit, source and licence on a soft backing.</string>
-    <string name="credits_off_summary">No text over the images.</string>
 
     <string name="quality_uhd">4K only</string>
     <string name="quality_uhd_summary">Only images that cover a 4K screen without upscaling.</string>
@@ -61,11 +78,6 @@
     <string name="quality_minimum_summary">Skips images too small to cover the screen at this resolution.</string>
     <string name="quality_any">Any size</string>
     <string name="quality_any_summary">Uses images of any resolution. Small ones will look soft.</string>
-
-    <string name="licence_any">Any public image</string>
-    <string name="licence_any_summary">For personal viewing: uses every publicly available image from the enabled sources.</string>
-    <string name="licence_open">Creative Commons only</string>
-    <string name="licence_open_summary">Only images individually verified as CC BY 4.0. Anything unclear is skipped.</string>
 
     <string name="slideshow_fetching">Fetching space imagery…</string>
     <string name="slideshow_empty">No images yet. Open Cosmos to download images.</string>

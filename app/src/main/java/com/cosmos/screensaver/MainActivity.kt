@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -20,20 +21,24 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.screensaver.PreviewActivity
 import com.cosmos.screensaver.settings.CaptionMode
+import com.cosmos.screensaver.settings.CollectionPreset
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.settings.DisplayMode
 import com.cosmos.screensaver.settings.LicenceMode
 import com.cosmos.screensaver.settings.QualityPreference
 import com.cosmos.screensaver.settings.cycle
-import com.cosmos.screensaver.source.DjangoplicitySite
+import com.cosmos.screensaver.source.Sources
 import com.cosmos.screensaver.sync.RefreshCoordinator
+import com.cosmos.screensaver.sync.RefreshJobService
 
 /** TV settings screen: a status pane on the left and grouped, remote-friendly rows on the right. */
 class MainActivity : Activity() {
     private lateinit var settings: CosmosSettings
     private lateinit var status: TextView
+    private lateinit var storage: TextView
     private lateinit var lastRefresh: TextView
     private val rows = mutableListOf<Row>()
     private val handler = Handler(Looper.getMainLooper())
@@ -56,6 +61,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = CosmosSettings(this)
+        RefreshJobService.ensureScheduled(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -73,6 +79,8 @@ class MainActivity : Activity() {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         info.addView(status)
+        storage = text("", 15f, SECONDARY).apply { setPadding(0, dp(6), 0, 0) }
+        info.addView(storage)
         lastRefresh = text("", 14f, SECONDARY).apply { setPadding(0, dp(8), 0, 0) }
         info.addView(lastRefresh)
         info.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
@@ -126,20 +134,30 @@ class MainActivity : Activity() {
 
         list.addView(header(R.string.section_images))
         list.addView(choice(
+            R.string.row_collection, CollectionPreset.entries.filter { it.providers != null },
+            { settings.collection }, { settings.collection = it },
+            label = ::collectionLabel, summary = ::collectionSummary, refreshes = true
+        ))
+        list.addView(choice(
             R.string.row_quality, QualityPreference.entries, { settings.quality }, { settings.quality = it },
             label = ::qualityLabel, summary = ::qualitySummary, refreshes = true
         ))
         list.addView(choice(
-            R.string.row_licence, LicenceMode.entries, { settings.licenceMode }, { settings.licenceMode = it },
-            label = ::licenceLabel, summary = ::licenceSummary, refreshes = true
+            R.string.row_licence, listOf(false, true),
+            { settings.licenceMode == LicenceMode.OPEN_LICENCE_ONLY },
+            { settings.licenceMode = if (it) LicenceMode.OPEN_LICENCE_ONLY else LicenceMode.ANY_AVAILABLE },
+            label = { getString(if (it) R.string.value_on else R.string.value_off) },
+            summary = { getString(if (it) R.string.licence_on_summary else R.string.licence_off_summary) },
+            refreshes = true
         ))
 
         list.addView(header(R.string.section_sources))
-        DjangoplicitySite.entries.forEach { site ->
+        AssetProvider.entries.forEach { provider ->
             list.addView(choice(
-                site.label, listOf(true, false), { settings.isEnabled(site) }, { settings.setEnabled(site, it) },
+                Sources.label(provider), listOf(true, false),
+                { settings.isEnabled(provider) }, { settings.setEnabled(provider, it) },
                 label = { getString(if (it) R.string.value_on else R.string.value_off) },
-                summary = { site.domain }, refreshes = true
+                summary = { sourceSummary(provider) }, refreshes = true
             ))
         }
 
@@ -178,12 +196,20 @@ class MainActivity : Activity() {
 
     private fun updateAll() {
         rows.forEach { it.update() }
-        val catalogue = RefreshCoordinator.store(this).load()
-        val enabled = settings.enabledSites.map { it.provider }.toSet()
+        val store = RefreshCoordinator.store(this)
+        val catalogue = store.load()
+        val enabled = settings.enabledProviders
         val count = settings.selection.eligible(catalogue.entries.filter { it.provider in enabled }).size
         status.text = resources.getQuantityString(R.plurals.home_image_count, count, count)
+        val usedBytes = catalogue.entries.sumOf { it.byteCount }
+        storage.text = if (RefreshCoordinator.lowOnSpace(this, store)) {
+            getString(R.string.home_low_space, Formatter.formatShortFileSize(this, usedBytes))
+        } else {
+            getString(R.string.home_storage, Formatter.formatShortFileSize(this, usedBytes))
+        }
+        storage.setTextColor(if (RefreshCoordinator.lowOnSpace(this, store)) WARNING else SECONDARY)
         lastRefresh.text = when {
-            settings.enabledSites.isEmpty() -> getString(R.string.home_no_sources)
+            enabled.isEmpty() -> getString(R.string.home_no_sources)
             RefreshCoordinator.isRunning -> getString(R.string.home_refreshing)
             catalogue.lastAttemptAtEpochMillis > 0 -> getString(
                 R.string.home_last_refresh,
@@ -308,9 +334,9 @@ class MainActivity : Activity() {
         when (mode) {
             DisplayMode.FILL -> R.string.fit_fill
             DisplayMode.FIT -> R.string.fit_fit
+            DisplayMode.STRETCH -> R.string.fit_stretch
             DisplayMode.AUTO -> R.string.fit_auto
             DisplayMode.ORIGINAL -> R.string.fit_original
-            DisplayMode.STRETCH -> R.string.fit_stretch
         }
     )
 
@@ -318,9 +344,9 @@ class MainActivity : Activity() {
         when (mode) {
             DisplayMode.FILL -> R.string.fit_fill_summary
             DisplayMode.FIT -> R.string.fit_fit_summary
+            DisplayMode.STRETCH -> R.string.fit_stretch_summary
             DisplayMode.AUTO -> R.string.fit_auto_summary
             DisplayMode.ORIGINAL -> R.string.fit_original_summary
-            DisplayMode.STRETCH -> R.string.fit_stretch_summary
         }
     )
 
@@ -328,7 +354,7 @@ class MainActivity : Activity() {
         when (mode) {
             CaptionMode.SUBTLE -> R.string.credits_subtle
             CaptionMode.DETAILED -> R.string.credits_detailed
-            CaptionMode.OFF -> R.string.value_off
+            CaptionMode.OFF -> R.string.credits_off
         }
     )
 
@@ -339,6 +365,35 @@ class MainActivity : Activity() {
             CaptionMode.OFF -> R.string.credits_off_summary
         }
     )
+
+    private fun collectionLabel(preset: CollectionPreset) = getString(
+        when (preset) {
+            CollectionPreset.EVERYTHING -> R.string.collection_everything
+            CollectionPreset.DEEP_SPACE -> R.string.collection_deep_space
+            CollectionPreset.PICTURE_OF_THE_DAY -> R.string.collection_potd
+            CollectionPreset.NASA_ONLY -> R.string.collection_nasa
+            CollectionPreset.CUSTOM -> R.string.collection_custom
+        }
+    )
+
+    private fun collectionSummary(preset: CollectionPreset) = getString(
+        when (preset) {
+            CollectionPreset.EVERYTHING -> R.string.collection_everything_summary
+            CollectionPreset.DEEP_SPACE -> R.string.collection_deep_space_summary
+            CollectionPreset.PICTURE_OF_THE_DAY -> R.string.collection_potd_summary
+            CollectionPreset.NASA_ONLY -> R.string.collection_nasa_summary
+            CollectionPreset.CUSTOM -> R.string.collection_custom_summary
+        }
+    )
+
+    private fun sourceSummary(provider: AssetProvider) = when (provider) {
+        AssetProvider.NASA -> "images.nasa.gov"
+        AssetProvider.APOD -> "science.nasa.gov \u00b7 Astronomy Picture of the Day"
+        AssetProvider.ESA_HUBBLE -> "esahubble.org"
+        AssetProvider.ESA_WEBB -> "esawebb.org"
+        AssetProvider.ESO -> "eso.org"
+        AssetProvider.NOIRLAB -> "noirlab.edu"
+    }
 
     private fun qualityLabel(quality: QualityPreference) = getString(
         when (quality) {
@@ -357,20 +412,6 @@ class MainActivity : Activity() {
             QualityPreference.UHD_PREFERRED -> R.string.quality_uhd_preferred_summary
             QualityPreference.ANY -> R.string.quality_any_summary
             else -> R.string.quality_minimum_summary
-        }
-    )
-
-    private fun licenceLabel(mode: LicenceMode) = getString(
-        when (mode) {
-            LicenceMode.ANY_AVAILABLE -> R.string.licence_any
-            LicenceMode.OPEN_LICENCE_ONLY -> R.string.licence_open
-        }
-    )
-
-    private fun licenceSummary(mode: LicenceMode) = getString(
-        when (mode) {
-            LicenceMode.ANY_AVAILABLE -> R.string.licence_any_summary
-            LicenceMode.OPEN_LICENCE_ONLY -> R.string.licence_open_summary
         }
     )
 
@@ -397,6 +438,7 @@ class MainActivity : Activity() {
         private const val ACCENT = 0xFF8CC8FF.toInt()
         private const val SECONDARY = 0xFFAFC0D8.toInt()
         private const val MUTED = 0xFF7A8AA3.toInt()
+        private const val WARNING = 0xFFFFB86B.toInt()
     }
 }
 

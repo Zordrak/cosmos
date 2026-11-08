@@ -20,7 +20,7 @@ class ImageSelectionTest {
     }
 
     @Test
-    fun uhdOnlyAcceptsNear4kInBothDimensions() {
+    fun uhdOnlyNeedsAtLeast4kInBothDimensions() {
         val selection = ImageSelection()
         val entries = listOf(
             image("a", 3840, 2160),
@@ -29,7 +29,7 @@ class ImageSelectionTest {
             image("d", 1920, 1080)
         )
 
-        assertEquals(listOf("a", "b"), selection.eligible(entries).map { it.providerId })
+        assertEquals(listOf("a"), selection.eligible(entries).map { it.providerId })
     }
 
     @Test

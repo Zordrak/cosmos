@@ -25,7 +25,7 @@ internal object DjangoplicityParser {
         "Crediting this image with the full credit line, in a visible way is MANDATORY, " +
             "if you want to use it without paying a fee."
 
-    private val ID_PATTERN = Regex("^[a-z0-9][a-z0-9_-]{2,63}$")
+    private val ID_PATTERN = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$")
     private val NON_ASSET_PATHS = setOf(
         "archive", "viewall", "search", "potw", "potm", "iotw", "zip", "feed", "top100", "page", "list",
         "comparisons", "news", "category"
@@ -36,7 +36,7 @@ internal object DjangoplicityParser {
     )
 
     fun listingIds(html: String, site: DjangoplicitySite): List<String> =
-        Regex("""href="(?:https?://(?:www\.)?${Regex.escape(site.domain)})?${Regex.escape(site.pagePath)}([a-z0-9_-]+)/"""")
+        Regex("""href="(?:https?://(?:www\.)?${Regex.escape(site.domain)})?${Regex.escape(site.pagePath)}([A-Za-z0-9_-]+)/"""")
             .findAll(html)
             .map { it.groupValues[1] }
             .filter(::isAssetId)
@@ -44,7 +44,7 @@ internal object DjangoplicityParser {
             .toList()
 
     fun feedIds(xml: String, site: DjangoplicitySite): List<String> =
-        Regex("""<link>\s*https?://(?:www\.)?${Regex.escape(site.domain)}${Regex.escape(site.pagePath)}([a-z0-9_-]+)/\s*</link>""")
+        Regex("""<link>\s*https?://(?:www\.)?${Regex.escape(site.domain)}${Regex.escape(site.pagePath)}([A-Za-z0-9_-]+)/\s*</link>""")
             .findAll(xml)
             .map { it.groupValues[1] }
             .filter(::isAssetId)
@@ -54,7 +54,7 @@ internal object DjangoplicityParser {
     fun discoveredIds(document: String, site: DjangoplicitySite): List<String> =
         (feedIds(document, site) + listingIds(document, site)).distinct()
 
-    fun isAssetId(id: String) = ID_PATTERN.matches(id) && id !in NON_ASSET_PATHS
+    fun isAssetId(id: String) = ID_PATTERN.matches(id) && id.lowercase(Locale.ROOT) !in NON_ASSET_PATHS
 
     fun policyIsCurrent(html: String, site: DjangoplicitySite): Boolean {
         val text = HtmlText.toPlainText(html)

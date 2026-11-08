@@ -40,6 +40,6 @@ class SlideshowTest {
 
         assertEquals("Synthetic heic9901a", attribution.title)
         assertEquals("Credit: ESA/Hubble & NASA, A. Synthetic", attribution.credit)
-        assertEquals("ESA/Hubble  \u00b7  CC BY 4.0  \u00b7  esahubble.org/images/heic9901a", attribution.source)
+        assertEquals("ESA/Hubble  \u00b7  CC BY 4.0  \u00b7  creativecommons.org/licenses/by/4.0  \u00b7  esahubble.org/images/heic9901a", attribution.source)
     }
 }

@@ -6,10 +6,10 @@ import java.util.Locale
 
 /**
  * The only hosts Cosmos may contact. Every request and every redirect target is checked here,
- * so adding a source requires an explicit, reviewed change to [DjangoplicitySite].
+ * so adding a source requires an explicit change to [DjangoplicitySite] or [NasaHosts].
  */
 internal object ApprovedEndpoints {
-    private val HOSTS: Set<String> = DjangoplicitySite.entries.flatMap { it.hosts }.toSet()
+    private val HOSTS: Set<String> = DjangoplicitySite.entries.flatMap { it.hosts }.toSet() + NasaHosts.ALL
 
     fun isApproved(url: String): Boolean {
         if (url != url.trim()) return false

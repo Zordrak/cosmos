@@ -1,96 +1,240 @@
 package com.cosmos.screensaver.screensaver
 
-import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
-import android.view.View
+import android.util.Log
+import android.view.Choreographer
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import com.cosmos.screensaver.settings.CaptionMode
 
 /**
- * Cross-fades between pre-placed [Frame]s and draws the caption chosen in settings. Captions
- * alternate corners to limit burn-in.
+ * Cross-fades between pre-placed [Frame]s and draws the caption chosen in settings. The picture
+ * is drawn into a surface whose buffer matches the panel's native resolution, so a 4K screen
+ * shows 4K images pixel for pixel even though the app's logical display is 1080p.
  */
-internal class SlideshowView(context: Context) : View(context) {
-    private data class Slide(val frame: Frame, val attribution: Attribution, val captionOnLeft: Boolean)
+internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
+    private class Slide(val frame: Frame, val attribution: Attribution, val captionOnLeft: Boolean) {
+        val shownAt = SystemClock.uptimeMillis()
+        var captionAlphaWhenReplaced = 0f
+    }
 
     var captionMode: CaptionMode = CaptionMode.SUBTLE
         set(value) {
             field = value
             captionCache.clear()
-            invalidate()
+            requestDraw()
         }
+
+    /** Size of the drawing buffer; frames should be decoded for exactly this size. */
+    var bufferWidth = 0
+        private set
+    var bufferHeight = 0
+        private set
 
     private val synthetic = SyntheticArtworkRenderer()
     private val imagePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val scrimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
     private val destination = Rect()
     private val scrim = RectF()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val choreographer by lazy { Choreographer.getInstance() }
 
     private var current: Slide? = null
     private var previous: Slide? = null
-    private var fade = 1f
-    private var animator: ValueAnimator? = null
     private var message: String? = null
     private var captionOnLeft = true
+    private var surfaceReady = false
+    private var lowResolution = false
+    private var hardwareCanvasFailed = false
+    private var frameLoopRunning = false
+
+    private val frameCallback = Choreographer.FrameCallback {
+        frameLoopRunning = false
+        drawNow()
+        if (isAnimating(SystemClock.uptimeMillis())) scheduleFrame()
+    }
+    private val captionFadeStarter = Runnable { requestDraw() }
+
+    init {
+        holder.addCallback(this)
+        holder.setFormat(PixelFormat.RGBX_8888)
+    }
+
+    /** The panel's native mode, or the view's own size when that is unknown or unreasonable. */
+    private fun nativeSize(): Pair<Int, Int> {
+        val mode = display?.mode
+        val (w, h) = if (mode != null) {
+            maxOf(mode.physicalWidth, mode.physicalHeight) to minOf(mode.physicalWidth, mode.physicalHeight)
+        } else {
+            width to height
+        }
+        return if (w in MIN_EDGE..MAX_WIDTH && h in MIN_EDGE..MAX_HEIGHT) w to h else DEFAULT_SIZE
+    }
+
+    /** Falls back to a 1080p buffer when 4K could not be allocated or drawn. */
+    fun useLowResolution() {
+        if (lowResolution) return
+        lowResolution = true
+        Log.w(TAG, "Falling back to a ${LOW_SIZE.first}x${LOW_SIZE.second} buffer")
+        applyBufferSize()
+    }
+
+    private fun applyBufferSize() {
+        val (w, h) = if (lowResolution) LOW_SIZE else nativeSize()
+        holder.setFixedSize(w, h)
+        bufferWidth = w
+        bufferHeight = h
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        applyBufferSize()
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        surfaceReady = true
+    }
+
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        bufferWidth = width
+        bufferHeight = height
+        captionCache.clear()
+        requestDraw()
+    }
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        surfaceReady = false
+    }
 
     fun showMessage(text: String) {
         message = text
-        if (current == null) invalidate()
+        if (current == null) requestDraw()
     }
 
     fun show(frame: Frame, attribution: Attribution) {
-        animator?.cancel()
+        val now = SystemClock.uptimeMillis()
         previous?.frame?.bitmap?.takeIf { it !== current?.frame?.bitmap }?.recycle()
+        current?.let { it.captionAlphaWhenReplaced = captionAlpha(it, now) }
         previous = current
         captionOnLeft = !captionOnLeft
         current = Slide(frame, attribution, captionOnLeft)
-        fade = 0f
-        animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = FADE_MILLIS
-            addUpdateListener {
-                fade = it.animatedValue as Float
-                invalidate()
-            }
-            start()
-        }
-        invalidate()
+        mainHandler.removeCallbacks(captionFadeStarter)
+        if (captionMode == CaptionMode.SUBTLE) mainHandler.postDelayed(captionFadeStarter, SUBTLE_HOLD_MILLIS)
+        requestDraw()
     }
 
     override fun onDetachedFromWindow() {
-        animator?.cancel()
+        mainHandler.removeCallbacks(captionFadeStarter)
+        choreographer.removeFrameCallback(frameCallback)
+        frameLoopRunning = false
         super.onDetachedFromWindow()
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
+    private fun requestDraw() {
+        drawNow()
+        if (isAnimating(SystemClock.uptimeMillis())) scheduleFrame()
+    }
+
+    private fun scheduleFrame() {
+        if (frameLoopRunning) return
+        frameLoopRunning = true
+        choreographer.postFrameCallback(frameCallback)
+    }
+
+    private fun isAnimating(now: Long): Boolean {
+        val slide = current ?: return false
+        val elapsed = now - slide.shownAt
+        if (elapsed < FADE_MILLIS) return true
+        return captionMode == CaptionMode.SUBTLE && elapsed in SUBTLE_HOLD_MILLIS until SUBTLE_HOLD_MILLIS + CAPTION_FADE_MILLIS
+    }
+
+    private fun imageFade(slide: Slide, now: Long) =
+        ((now - slide.shownAt).toFloat() / FADE_MILLIS).coerceIn(0f, 1f)
+
+    private fun captionAlpha(slide: Slide, now: Long): Float {
+        if (captionMode == CaptionMode.OFF) return 0f
+        val elapsed = (now - slide.shownAt).toFloat()
+        val fadeIn = (elapsed / FADE_MILLIS).coerceIn(0f, 1f)
+        if (captionMode == CaptionMode.DETAILED) return fadeIn
+        val fadeOut = 1f - ((elapsed - SUBTLE_HOLD_MILLIS) / CAPTION_FADE_MILLIS).coerceIn(0f, 1f)
+        return fadeIn * fadeOut
+    }
+
+    private fun drawNow() {
+        if (!surfaceReady || bufferWidth <= 0 || bufferHeight <= 0) return
+        val surfaceHolder = holder
+        val canvas = lock(surfaceHolder) ?: return
+        try {
+            render(canvas, SystemClock.uptimeMillis())
+        } finally {
+            try {
+                surfaceHolder.unlockCanvasAndPost(canvas)
+            } catch (error: IllegalStateException) {
+                Log.w(TAG, "Unable to post frame", error)
+            } catch (error: IllegalArgumentException) {
+                Log.w(TAG, "Unable to post frame", error)
+            }
+        }
+    }
+
+    private fun lock(surfaceHolder: SurfaceHolder): Canvas? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !hardwareCanvasFailed) {
+            try {
+                return surfaceHolder.lockHardwareCanvas()
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Hardware canvas unavailable; using software drawing", error)
+                hardwareCanvasFailed = true
+            }
+        }
+        return try {
+            surfaceHolder.lockCanvas()
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Unable to lock the surface", error)
+            if (!lowResolution) useLowResolution()
+            null
+        }
+    }
+
+    private fun render(canvas: Canvas, now: Long) {
         val slide = current
         if (slide == null) {
-            synthetic.draw(canvas, width, height, message, showTestMarkers = false)
+            synthetic.draw(canvas, bufferWidth, bufferHeight, message, showTestMarkers = false)
             return
         }
         canvas.drawColor(Color.BLACK)
-        if (width <= 0 || height <= 0) return
-        previous?.takeIf { fade < 1f }?.let { drawSlide(canvas, it, 1f - fade) }
-        drawSlide(canvas, slide, fade)
+        val fade = imageFade(slide, now)
+        previous?.takeIf { fade < 1f }?.let { drawSlide(canvas, it, 1f - fade, it.captionAlphaWhenReplaced * (1f - fade)) }
+        drawSlide(canvas, slide, fade, captionAlpha(slide, now))
     }
 
-    private fun drawSlide(canvas: Canvas, slide: Slide, alpha: Float) {
+    private fun drawSlide(canvas: Canvas, slide: Slide, imageAlpha: Float, captionAlpha: Float) {
         val bitmap = slide.frame.bitmap
         if (bitmap.isRecycled) return
         val box = slide.frame.destination
-        destination.set(box.left, box.top, box.right, box.bottom)
-        imagePaint.alpha = (alpha * 255).toInt().coerceIn(0, 255)
+        val scaleX = bufferWidth.toFloat() / slide.frame.targetWidth
+        val scaleY = bufferHeight.toFloat() / slide.frame.targetHeight
+        destination.set(
+            (box.left * scaleX).toInt(), (box.top * scaleY).toInt(),
+            (box.right * scaleX).toInt(), (box.bottom * scaleY).toInt()
+        )
+        imagePaint.alpha = (imageAlpha * 255).toInt().coerceIn(0, 255)
         canvas.drawBitmap(bitmap, null, destination, imagePaint)
-        if (captionMode != CaptionMode.OFF) drawCaption(canvas, slide, alpha)
+        if (captionMode != CaptionMode.OFF && captionAlpha > 0f) drawCaption(canvas, slide, captionAlpha)
     }
 
     private class CaptionLayout(
@@ -110,44 +254,55 @@ internal class SlideshowView(context: Context) : View(context) {
             alpha = baseAlpha
             textSize = sizeUnits * unit
             this.typeface = Typeface.create(typeface, Typeface.NORMAL)
-            setShadowLayer(3f * unit, 0f, unit, Color.argb(200, 0, 0, 0))
+            setShadowLayer(3f * unit, 0f, unit, Color.argb(220, 0, 0, 0))
         }
 
     private fun captionLayout(slide: Slide): CaptionLayout {
-        captionCache[slide]?.takeIf { it.width == width && it.height == height }?.let { return it }
+        captionCache[slide]?.takeIf { it.width == bufferWidth && it.height == bufferHeight }?.let { return it }
         captionCache.keys.retainAll(setOfNotNull(current, previous))
-        val unit = height / 1080f
+        val unit = bufferHeight / 1080f
         val detailed = captionMode == CaptionMode.DETAILED
-        val maxTextWidth = (width * if (detailed) 0.5f else 0.4f).toInt().coerceAtLeast(1)
-        // Each line keeps its own paint so the caption can fade with its image.
-        val lines = if (detailed) {
-            listOf(
-                layout(slide.attribution.title, textPaint(22f, unit, "sans-serif-medium", DETAILED_ALPHA), maxTextWidth, 2),
-                layout(slide.attribution.credit, textPaint(17f, unit, "sans-serif", DETAILED_ALPHA), maxTextWidth, 3),
-                layout(slide.attribution.source, textPaint(15f, unit, "sans-serif", SUBTLE_ALPHA), maxTextWidth, 2)
-            )
-        } else {
-            listOf(
-                layout(slide.attribution.title, textPaint(15f, unit, "sans-serif-medium", SUBTLE_ALPHA), maxTextWidth, 1),
-                layout(slide.attribution.credit, textPaint(12f, unit, "sans-serif", SUBTLE_ALPHA), maxTextWidth, 2)
-            )
-        }
-        val gap = (if (detailed) 6f else 3f) * unit
+        val maxTextWidth = (bufferWidth * if (detailed) 0.5f else 0.4f).toInt().coerceAtLeast(1)
+        val margin = (if (detailed) 40f else 28f) * unit
+        val padding = (if (detailed) 14f else 0f) * unit
+        val availableHeight = (bufferHeight - 2 * (margin + padding)).coerceAtLeast(1f)
+        var scale = 1f
+        var lines: List<StaticLayout>
+        var gap: Float
+        var textHeight: Float
+        do {
+            val textUnit = unit * scale
+            lines = if (detailed) {
+                listOf(
+                    layout(slide.attribution.title, textPaint(22f, textUnit, "sans-serif-medium", DETAILED_ALPHA), maxTextWidth, 2),
+                    layout(slide.attribution.credit, textPaint(17f, textUnit, "sans-serif", DETAILED_ALPHA), maxTextWidth),
+                    layout(slide.attribution.source, textPaint(15f, textUnit, "sans-serif", SUBTLE_ALPHA), maxTextWidth)
+                )
+            } else {
+                listOf(
+                    layout(slide.attribution.title, textPaint(15f, textUnit, "sans-serif-medium", SUBTLE_ALPHA), maxTextWidth, 1),
+                    layout(slide.attribution.credit, textPaint(13f, textUnit, "sans-serif", SUBTLE_ALPHA), maxTextWidth, 1)
+                )
+            }
+            gap = (if (detailed) 6f else 2f) * textUnit
+            textHeight = lines.sumOf { it.height } + gap * (lines.size - 1)
+            if (textHeight > availableHeight) scale *= 0.75f
+        } while (textHeight > availableHeight && scale > 0.01f)
         val textWidth = lines.maxOf(::lineWidth)
-        val textHeight = lines.sumOf { it.height } + gap * (lines.size - 1)
-        return CaptionLayout(width, height, lines, textWidth, textHeight, gap).also { captionCache[slide] = it }
+        return CaptionLayout(bufferWidth, bufferHeight, lines, textWidth, textHeight, gap)
+            .also { captionCache[slide] = it }
     }
 
     private fun drawCaption(canvas: Canvas, slide: Slide, alpha: Float) {
-        val unit = height / 1080f
+        val unit = bufferHeight / 1080f
         val detailed = captionMode == CaptionMode.DETAILED
         val margin = (if (detailed) 40f else 28f) * unit
-        val padding = if (detailed) 14f * unit else 0f
+        val padding = (if (detailed) 14f else 0f) * unit
         val caption = captionLayout(slide)
         val boxWidth = caption.textWidth + 2 * padding
         val boxHeight = caption.textHeight + 2 * padding
-        val left = if (slide.captionOnLeft) margin else width - margin - boxWidth
-        val top = height - margin - boxHeight
+        val left = if (slide.captionOnLeft) margin else bufferWidth - margin - boxWidth
+        val top = bufferHeight - margin - boxHeight
 
         if (detailed) {
             scrim.set(left, top, left + boxWidth, top + boxHeight)
@@ -169,21 +324,33 @@ internal class SlideshowView(context: Context) : View(context) {
         }
     }
 
-    private fun layout(text: String, paint: TextPaint, width: Int, maxLines: Int): StaticLayout =
+    private fun layout(text: String, paint: TextPaint, width: Int, maxLines: Int? = null): StaticLayout =
         StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
             .setIncludePad(false)
-            .setMaxLines(maxLines)
-            .setEllipsize(TextUtils.TruncateAt.END)
+            .apply {
+                if (maxLines != null) {
+                    setMaxLines(maxLines)
+                    setEllipsize(TextUtils.TruncateAt.END)
+                }
+            }
             .build()
 
     private fun lineWidth(layout: StaticLayout): Float =
         (0 until layout.lineCount).maxOfOrNull { layout.getLineWidth(it) } ?: 0f
 
     companion object {
-        private const val FADE_MILLIS = 1_500L
-        private const val SUBTLE_ALPHA = 165
+        private const val TAG = "CosmosSlideshowView"
+        const val FADE_MILLIS = 1_500L
+        const val SUBTLE_HOLD_MILLIS = 15_000L
+        const val CAPTION_FADE_MILLIS = 2_000L
+        private const val SUBTLE_ALPHA = 170
         private const val DETAILED_ALPHA = 225
         private const val DETAILED_SCRIM_ALPHA = 90
+        private const val MIN_EDGE = 480
+        private const val MAX_WIDTH = 3840
+        private const val MAX_HEIGHT = 2160
+        private val DEFAULT_SIZE = 1920 to 1080
+        private val LOW_SIZE = 1920 to 1080
     }
 }

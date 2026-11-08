@@ -7,12 +7,19 @@ import com.cosmos.screensaver.rights.LicenceValidator
 import com.cosmos.screensaver.settings.ImageSelection
 import com.cosmos.screensaver.settings.LicenceMode
 import com.cosmos.screensaver.settings.QualityPreference
+import com.cosmos.screensaver.source.DjangoplicityAdapter
 import com.cosmos.screensaver.source.Download
 import com.cosmos.screensaver.source.DjangoplicitySite
 import com.cosmos.screensaver.source.Fetcher
 import com.cosmos.screensaver.source.Fixtures
 import com.cosmos.screensaver.source.Rendition
 import com.cosmos.screensaver.source.ResourceTooLargeException
+import com.cosmos.screensaver.source.Candidate
+import com.cosmos.screensaver.source.CandidateResult
+import com.cosmos.screensaver.source.Discovery
+import com.cosmos.screensaver.source.Lead
+import com.cosmos.screensaver.source.RenditionOption
+import com.cosmos.screensaver.source.SourceAdapter
 import com.cosmos.screensaver.source.sha256Of
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -111,7 +118,7 @@ class CatalogueRefresherTest {
                 "ESA_HUBBLE:heic9905a" to "LOW_RESOLUTION",
                 "ESA_HUBBLE:heic9906a" to "DIMENSION_MISMATCH",
                 "ESA_HUBBLE:heic9907a" to "NO_SUITABLE_RENDITION",
-                "ESA_HUBBLE:heic9908a" to "NOT_A_JPEG",
+                "ESA_HUBBLE:heic9908a" to "NOT_AN_IMAGE",
                 "ESA_HUBBLE:heic9909a" to "IMAGE_TOO_LARGE"
             ),
             store.load().rejections.mapValues { it.value.reason }
@@ -187,7 +194,7 @@ class CatalogueRefresherTest {
     @Test
     fun enforcesCapacityKeepingTheNewestImages() {
         listOf("heic9901a", "heic9902a", "heic9903a").forEach { publish(hubble, it) }
-        val limits = CatalogueRefresher.Limits(maxEntries = 2, maxAdmissionsPerSite = 1)
+        val limits = CatalogueRefresher.Limits(maxEntries = 2, maxAdmissionsPerSource = 1)
 
         repeat(3) {
             now += 1000
@@ -204,7 +211,7 @@ class CatalogueRefresherTest {
     fun capsAdmissionsPerRefresh() {
         (1..9).forEach { publish(hubble, "heic990${it}a") }
 
-        val result = refresher(limits = CatalogueRefresher.Limits(maxAdmissionsPerSite = 3)).refresh()
+        val result = refresher(limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 3)).refresh()
 
         assertEquals(3, result.admitted)
     }
@@ -307,13 +314,13 @@ class CatalogueRefresherTest {
 
     @Test
     fun downloadsTheFullSizeRenditionWhenThePublicationCopyIsTooSmallFor4k() {
-        publish(hubble, "heic9901a", width = 8000, height = 3600, large = ImageDimensions(8000, 3600))
+        publish(hubble, "heic9901a", width = 7000, height = 3150, large = ImageDimensions(7000, 3150))
 
         refresher(selection = personal).refresh()
 
         val entry = store.load().entries.single()
         assertEquals(hubble.renditionUrl(Rendition.LARGE, "heic9901a"), entry.assetUrl)
-        assertEquals(8000, entry.widthPx)
+        assertEquals(7000, entry.widthPx)
         assertFalse(hubble.renditionUrl(Rendition.PUBLICATION, "heic9901a") in fetcher.requests)
     }
 
@@ -371,22 +378,144 @@ class CatalogueRefresherTest {
             fetcher.requests.filter { it.contains("cdn.") })
     }
 
+    @Test
+    fun rejectsImagesLargerThan8k() {
+        publish(hubble, "heic9901a", width = 7681, height = 4000, large = ImageDimensions(7681, 4000))
+
+        refresher(selection = personal).refresh()
+
+        assertEquals(emptyList<CatalogueEntry>(), store.load().entries)
+        assertEquals("EXCEEDS_MAX_DIMENSIONS", store.load().rejections.values.single().reason)
+    }
+
+    @Test
+    fun stops4kQualityFromAdmittingAlmost4k() {
+        publish(hubble, "heic9901a", width = 3839, height = 2160)
+
+        refresher(selection = personal).refresh()
+
+        assertEquals("LOW_RESOLUTION", store.load().rejections.values.single().reason)
+    }
+
+    @Test
+    fun evictsTheOldestImagesToStayWithinTheStorageBudget() {
+        val mib = 1024L * 1024
+        (1..4).forEach { id -> publish(hubble, "heic990${id}a") }
+        (1..4).forEach { id -> fetcher.sizes[hubble.renditionUrl(Rendition.PUBLICATION, "heic990${id}a")] = 40 * mib }
+        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
+
+        repeat(4) {
+            now += 1000
+            refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+        }
+
+        val entries = store.load().entries
+        assertEquals(2, entries.size)
+        assertTrue(entries.sumOf { it.byteCount } <= 100 * mib)
+        assertEquals(entries.map { it.fileName }.toSet(), store.imagesDirectory.list()!!.toSet())
+    }
+
+    @Test
+    fun downloadsNothingWhenTheBudgetIsBelowTheMinimum() {
+        publish(hubble, "heic9901a")
+
+        val result = refresher(selection = personal, budgetFor = { 10L * 1024 * 1024 }).refresh()
+
+        assertTrue(result.lowSpace)
+        assertEquals(0, result.admitted)
+        assertEquals(emptyList<CatalogueEntry>(), store.load().entries)
+        assertTrue(fetcher.requests.none { it.contains("cdn.") })
+    }
+
+    @Test
+    fun capsRotationWhenTheLibraryIsFull() {
+        (1..6).forEach { publish(hubble, "heic990${it}a") }
+        val limits = CatalogueRefresher.Limits(maxEntries = 2, maxAdmissionsPerSource = 8, maxAdmissionsWhenFull = 1)
+        refresher(selection = personal, limits = limits).refresh()
+        assertEquals(2, store.load().entries.size)
+        now += 1000
+
+        val result = refresher(selection = personal, limits = limits).refresh()
+
+        assertEquals(1, result.admitted)
+        assertEquals(2, store.load().entries.size)
+    }
+
+    @Test
+    fun openLicenceModeClearsNasaWorksUnlessMarkedCopyrighted() {
+        val nasa = StubAdapter(AssetProvider.NASA, "n1" to false, "n2" to true)
+        fetcher.images[nasa.url("n1")] = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1)
+        dimensions["\u0001"] = ImageDimensions(4000, 2250)
+        fetcher.images[nasa.url("n2")] = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1)
+
+        refresher(sites = emptySet(), selection = licensed, extraAdapters = listOf(nasa)).refresh()
+
+        val entry = store.load().entries.single()
+        assertEquals("NASA_PUBLIC_DOMAIN", entry.rightsBasis)
+        assertEquals("RIGHTS_COPYRIGHT_MARKED", store.load().rejections.getValue("NASA:n2").reason)
+    }
+
+    @Test
+    fun personalUseAdmitsCopyrightMarkedNasaWorks() {
+        val nasa = StubAdapter(AssetProvider.NASA, "n2" to true)
+        fetcher.images[nasa.url("n2")] = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1)
+        dimensions["\u0001"] = ImageDimensions(4000, 2250)
+
+        refresher(sites = emptySet(), selection = personal, extraAdapters = listOf(nasa)).refresh()
+
+        assertEquals(CatalogueEntry.RIGHTS_NOT_CHECKED, store.load().entries.single().rightsBasis)
+    }
+
+    private class StubAdapter(
+        override val provider: AssetProvider,
+        vararg items: Pair<String, Boolean>
+    ) : SourceAdapter {
+        override val label = "Stub"
+        private val items = items.toList()
+
+        fun url(id: String) = "https://images-assets.nasa.gov/image/$id/$id~orig.jpg"
+
+        override fun discover(fetcher: Fetcher, random: Random) = Discovery(
+            items.map { (id, copyright) ->
+                Lead(id) {
+                    CandidateResult.Ready(
+                        Candidate(
+                            provider = provider,
+                            id = id,
+                            title = "Stub $id",
+                            pageUrl = "https://images.nasa.gov/details/$id",
+                            credit = "NASA",
+                            options = listOf(RenditionOption(url(id), 1024, 4000, 2250)),
+                            declaredWidth = 4000,
+                            declaredHeight = 2250,
+                            copyrightMarked = copyright
+                        )
+                    )
+                }
+            },
+            emptyList(),
+            true
+        )
+    }
     private fun refresher(
         territory: String? = "GB",
         sites: Set<DjangoplicitySite> = DjangoplicitySite.entries.toSet(),
         selection: ImageSelection = licensed,
         limits: CatalogueRefresher.Limits = CatalogueRefresher.Limits(),
-        inspector: ImageInspector = ImageInspector { dimensions[String(it.readBytes(), Charsets.ISO_8859_1).substring(3)] }
+        inspector: ImageInspector = ImageInspector { dimensions[String(it.readBytes(), Charsets.ISO_8859_1).substring(3)] },
+        budgetFor: (Long) -> Long = { Long.MAX_VALUE },
+        extraAdapters: List<SourceAdapter> = emptyList()
     ) = CatalogueRefresher(
         fetcher = fetcher,
         store = store,
         inspector = inspector,
         territory = territory,
-        sites = sites,
+        adapters = sites.map { DjangoplicityAdapter(it) { now } } + extraAdapters,
         selection = selection,
         clock = { now },
         random = Random(7),
-        limits = limits
+        limits = limits,
+        budgetFor = budgetFor
     )
 
     private fun publish(
@@ -427,6 +556,7 @@ class CatalogueRefresherTest {
         val documents = mutableMapOf<String, String>()
         val images = mutableMapOf<String, ByteArray>()
         val tooLarge = mutableSetOf<String>()
+        val sizes = mutableMapOf<String, Long>()
         val requests = mutableListOf<String>()
         var offline = false
 
@@ -436,13 +566,18 @@ class CatalogueRefresherTest {
             return documents[url] ?: throw IOException("HTTP 404 from $url")
         }
 
+        override fun fetchPrefix(url: String, maxBytes: Int): ByteArray {
+            requests += url
+            return images[url]?.copyOf(minOf(maxBytes, images.getValue(url).size)) ?: throw IOException("HTTP 404 from $url")
+        }
+
         override fun download(url: String, destination: File, maxBytes: Long): Download {
             requests += url
             if (offline) throw IOException("offline")
             if (url in tooLarge) throw ResourceTooLargeException("too large")
             val bytes = images[url] ?: throw IOException("HTTP 404 from $url")
             destination.writeBytes(bytes)
-            return Download(sha256Of(destination), bytes.size.toLong())
+            return Download(sha256Of(destination), sizes[url] ?: bytes.size.toLong())
         }
     }
 }

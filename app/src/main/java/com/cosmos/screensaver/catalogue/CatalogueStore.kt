@@ -70,7 +70,7 @@ internal class CatalogueStore(directory: File) {
 }
 
 internal object CatalogueJson {
-    private const val FORMAT_VERSION = 1
+    private const val FORMAT_VERSION = 2
 
     fun encode(catalogue: Catalogue): String {
         val root = JSONObject()
@@ -162,7 +162,7 @@ internal object CatalogueJson {
             )
         }
         val fileName = json.getString("fileName")
-        require(fileName.matches(Regex("^[0-9a-f]{64}\\.jpg$"))) { "Unexpected file name" }
+        require(fileName.matches(Regex("^[0-9a-f]{64}\\.(jpg|png)$"))) { "Unexpected file name" }
         val credit = json.getString("credit")
         val rightsBasis = json.getString("rightsBasis")
         require(credit.isNotBlank())

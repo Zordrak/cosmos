@@ -16,15 +16,15 @@ In this mode, Cosmos displays an image only when its rights basis is explicit, v
 The fact that an image is discoverable through an API, downloadable, hosted by NASA or ESA, or displayed on an official website does not itself grant permission to cache or display it in an entertainment/screensaver application.
 ## Current sources
 
-See [ADR 0003](decisions/0003-esa-sources-and-nasa-exclusion.md) for the full decision.
+See [ADR 0003](decisions/0003-esa-sources-and-nasa-exclusion.md) for the original ESA decision, superseded in part by [ADR 0004](decisions/0004-personal-use-defaults.md).
 
-- **ESA/Hubble** (`esahubble.org`), **ESA/Webb** (`esawebb.org`), **ESO** (`eso.org`) and **NOIRLab** (`noirlab.edu`) are the sources. All of them publish under CC BY 4.0 ([ESA/Hubble terms](https://esahubble.org/copyright/), [ESA/Webb terms](https://esawebb.org/copyright/), [ESO terms](https://www.eso.org/public/outreach/copyright/), [NOIRLab terms](https://noirlab.edu/public/copyright/)). In CC BY only mode, an asset is admitted only when all of the following are true:
+- **ESA/Hubble**, **ESA/Webb**, **ESO** and **NOIRLab** publish under CC BY 4.0 ([ESA/Hubble terms](https://esahubble.org/copyright/), [ESA/Webb terms](https://esawebb.org/copyright/), [ESO terms](https://www.eso.org/public/outreach/copyright/), [NOIRLab terms](https://noirlab.edu/public/copyright/)). In CC BY only mode, an asset is admitted only when all of the following are true:
   - The site policy still contains the exact licence sentence.
   - The asset's own page shows its credit line and the "full credit line … is MANDATORY" notice, and links that policy.
   - The image comes from the page's own CDN rendition.
   - The title, caption and credit contain no exception wording (©, "copyright", "all rights reserved", "permission", "courtesy", or other CC variants).
-  - The page type is `Observation`, or `Photographic` in ESO's or NOIRLab's curated picture-of-the-week series. This excludes collages and illustrations, which may contain logos; logos are excluded from the permissions. The type rule also applies in Any public image mode, for content reasons.
-- **NASA endpoints are not used.** Their images are mostly below 4K. In addition, the NASA Images API has no per-asset rights field, and NASA's guidance addresses only U.S. copyright. Cosmos cannot establish asset-level rights for a non-U.S. territory from it. NASA imagery appears only where ESA/Hubble or ESA/Webb publishes it under its own licence, with NASA in the credit.
+  - The page type is `Observation`. The type rule also applies in Any public image mode, for content reasons.
+- **NASA Image and Video Library** and **NASA APOD** are also sources as of 0.4.0 ([ADR 0004](decisions/0004-personal-use-defaults.md)). In CC BY only mode, they are treated as NASA public-domain works unless their record marks them as copyrighted (a © sign or the word "copyright"). The NASA media guidelines address U.S. copyright only, which is acceptable while Cosmos is for personal use.
 - **ESA.int multimedia is excluded.** Licences vary per asset, and the site is being migrated.
 
 Any new provider requires an ADR, an allow-list entry, and parser and validator tests.

@@ -29,13 +29,16 @@ Run `gradle --no-daemon :app:testDebugUnitTest`. All fixtures are synthetic: han
 | Test | Covers |
 | --- | --- |
 | `LicenceValidatorTest` | Fail-closed rights gate: every rejection reason, evidence binding, and provenance preservation |
-| `DjangoplicityParserTest` | Hubble-, Webb-, ESO- and NOIRLab-style asset pages, optional credit, accepted types, renditions restricted to the site CDN, exception wording, missing notice or policy link, feed and listing discovery, policy statement changes, and entity decoding |
+| `DjangoplicityParserTest` | Hubble-, Webb-, ESO- and NOIRLab-style asset pages, optional credit, Observation-only types, renditions restricted to the site CDN, exception wording, missing notice or policy link, feed and listing discovery, policy statement changes, and entity decoding |
 | `ApprovedEndpointsTest` | HTTPS-only host allow-list, including lookalike hosts, user info, ports, and NASA hosts |
-| `CatalogueRefresherTest` | End-to-end admission with full provenance, ESO and NOIRLab admission, personal-use admission without rights checks, 4K rendition selection (skip before download, fall through to full resolution, reuse cached files), the 4K-else-1080p fallback, retrying settings-dependent rejections, and every rejection path: unsuitable type, exception wording, missing notice, portrait, low resolution, dimension mismatch, no rendition, non-JPEG, too large, and unknown territory. Also covers the rejection retry window, policy-change withdrawal, offline retention, enabled sources, capacity limits, per-refresh caps, and concurrent removal |
+| `CatalogueRefresherTest` | End-to-end admission with full provenance, ESO and NOIRLab admission, personal-use admission without rights checks, 4K rendition selection (skip before download, fall through to full resolution, reuse cached files), the 4K-else-1080p fallback, the exact-4K floor and 8K cap, retrying settings-dependent rejections, and every rejection path: unsuitable type, exception wording, missing notice, portrait, low resolution, dimension mismatch, no rendition, not an image, too large, and unknown territory. Also covers the rejection retry window, policy-change withdrawal, offline retention, enabled sources, capacity limits, the storage budget and low-space state, the rotation cap, NASA admission in both modes, per-refresh caps, and concurrent removal |
+| `NasaSourcesTest` | NASA Image Library and APOD parsing and discovery |
+| `ImageHeaderTest` | JPEG and PNG dimension probing, including malformed input |
+| `OptionsTest` | Source presets, defaults and settings fingerprints |
 | `CatalogueStoreTest` | JSON round trip including the settings fingerprint and personal-use entries; rejection of unsafe file names and entries without provenance; persistence, removal and clearing; corrupt-file recovery |
 | `SlideshowTest` | No-repeat shuffle order and attribution text |
 | `PlacementTest` | Fill, Fit, Auto, Original and Stretch placement, aspect-ratio preservation, and decode sample size |
-| `ImageSelectionTest` | Personal-use and 4K defaults, quality tiers with tolerance, CC BY only filtering, 4K-else-1080p fallback, and settings fingerprints |
+| `ImageSelectionTest` | Personal-use and 4K defaults, exact-4K floor, quality tiers, openly-licensed filtering, 4K-else-1080p fallback, and settings fingerprints |
 | `RefreshCoordinatorTest` | Refresh staleness rules, including settings changes |
 | `ArtworkViewportTest`, `SyntheticArtworkGeometryTest`, `DreamSettingsLauncherTest` | Aspect-ratio fitting, the synthetic fixture, and the settings shortcut fallback |
 
@@ -84,7 +87,15 @@ Still to check by hand, with the remote:
 6. Leave it running for several hours. Check memory and stability and confirm there are no crashes (`adb logcat -s CosmosDream CosmosSlideshow CosmosRefresh`).
 7. Upgrade from 0.1.0 to 0.2.0 using the same signing key, and confirm the screensaver selection is retained.
 
-### Version 0.3.0 — still to check by hand
+### Version 0.4.0 — still to check by hand
+
+1. Native 4K: run `adb shell am start -n com.cosmos.screensaver.debug/com.cosmos.screensaver.screensaver.TestPatternActivity`. The box shows the buffer size. Up close, the left half (alternating rows) and right half (alternating columns) should be crisp 1-pixel lines, not a grey blur. Any key closes it.
+2. Open Cosmos. The settings screen is navigable with the D-pad, and the status pane updates as images arrive from the six sources.
+3. Preview with the defaults. Images fill the screen without distortion, are sharp, and credits are faint and fade after about 15 seconds. Try each Picture fit and Credits option.
+4. Change the Picture quality, licence filter and source preset, and confirm that a refresh starts.
+5. Leave the TV in standby for a day and check whether the daily refresh job ran (Android may defer it).
+
+### Version 0.3.0 — checked or superseded by the 0.4.0 list above
 
 1. Open Cosmos. The settings screen is navigable with the D-pad: up and down move between rows, OK and left/right change values, and the status pane updates as images arrive.
 2. Preview with the defaults. Images fill the screen without distortion, and credits are small and translucent.

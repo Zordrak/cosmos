@@ -1,6 +1,6 @@
 # ADR 0003: ESA/Hubble and ESA/Webb as the initial sources; NASA endpoints excluded
 
-- Status: Accepted; applies only when licence checking is on, per [ADR 0004](0004-personal-use-defaults.md)
+- Status: Superseded by [ADR 0004](0004-personal-use-defaults.md); still describes the ESA/ESO/NOIRLab verification that runs when the licence filter is on
 - Date: 2026-11-09
 
 ## Context

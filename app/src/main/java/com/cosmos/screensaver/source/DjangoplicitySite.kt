@@ -30,35 +30,33 @@ internal enum class DjangoplicitySite(
     val policyPath: String,
     /** Exact sentence the usage policy must still contain when licence checking is enabled. */
     val policyStatement: String,
-    private val extraListings: List<String>,
-    /** Picture-of-the-week style ids whose "Photographic" images are curated sky photography. */
-    private val photographicIdPrefixes: List<String>
+    private val extraListings: List<String>
 ) {
     HUBBLE(
         AssetProvider.ESA_HUBBLE, "ESA/Hubble", "esahubble.org", "esahubble.org", "/images/",
         "cdn.esahubble.org", "/archives/images/", "/copyright/",
         esaStatement("ESA/Hubble"),
-        listOf("archive/top100/page/2/", "potw/"), emptyList()
+        listOf("archive/top100/page/2/", "potw/")
     ),
     WEBB(
         AssetProvider.ESA_WEBB, "ESA/Webb", "esawebb.org", "esawebb.org", "/images/",
         "cdn.esawebb.org", "/archives/images/", "/copyright/",
         esaStatement("ESA/Webb"),
-        listOf("archive/top100/page/2/"), emptyList()
+        listOf("archive/top100/page/2/", "archive/category/nebulae/", "archive/category/galaxies/")
     ),
     ESO(
         AssetProvider.ESO, "ESO", "eso.org", "www.eso.org", "/public/images/",
         "cdn.eso.org", "/images/", "/public/outreach/copyright/",
         "are licensed under a Creative Commons Attribution 4.0 International License, and may on a " +
             "non-exclusive basis be reproduced without fee provided the credit is clear and visible.",
-        listOf("potw/"), listOf("potw")
+        listOf("potw/")
     ),
     NOIRLAB(
         AssetProvider.NOIRLAB, "NOIRLab", "noirlab.edu", "noirlab.edu", "/public/images/",
         "storage.noirlab.edu", "/media/archives/images/", "/public/copyright/",
         "are licensed under a Creative Commons Attribution 4.0 International License, and hence may on a " +
             "non-exclusive basis be reproduced without fee provided the credit is clear and visible.",
-        listOf("archive/top100/page/2/", "iotw/"), listOf("iotw")
+        listOf("archive/top100/page/2/", "iotw/")
     );
 
     val hosts: Set<String> get() = setOf(domain, "www.$domain", webHost, cdnHost)
@@ -70,16 +68,11 @@ internal enum class DjangoplicitySite(
 
     fun renditionUrl(rendition: Rendition, id: String) = "https://$cdnHost$cdnPath${rendition.path}/$id.jpg"
 
-    /**
-     * Observations suit a space screensaver. Curated weekly sky photographs are also accepted;
-     * other photographs are mostly of people, buildings or hardware, and charts are not imagery.
-     */
-    fun acceptsType(type: String, id: String): Boolean =
-        type == OBSERVATION || (type == PHOTOGRAPHIC && photographicIdPrefixes.any(id::startsWith))
+    /** Only observations suit a space screensaver; photographs show people, buildings or hardware. */
+    fun acceptsType(type: String): Boolean = type == OBSERVATION
 
     companion object {
         const val OBSERVATION = "Observation"
-        const val PHOTOGRAPHIC = "Photographic"
 
         fun forProvider(provider: AssetProvider): DjangoplicitySite? = entries.firstOrNull { it.provider == provider }
     }

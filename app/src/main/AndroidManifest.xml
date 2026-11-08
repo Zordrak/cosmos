@@ -38,6 +38,11 @@
             android:exported="false"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
 
+        <activity
+            android:name=".screensaver.TestPatternActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+
         <service
             android:name=".screensaver.CosmosDreamService"
             android:exported="true"
@@ -52,5 +57,10 @@
                 android:name="android.service.dream"
                 android:resource="@xml/cosmos_dream" />
         </service>
+
+        <service
+            android:name=".sync.RefreshJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 </manifest>

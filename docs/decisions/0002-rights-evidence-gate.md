@@ -1,6 +1,6 @@
 # ADR 0002: Asset-specific rights evidence gate
 
-- Status: Accepted; applies only when licence checking is on, per [ADR 0004](0004-personal-use-defaults.md)
+- Status: Superseded by [ADR 0004](0004-personal-use-defaults.md); the gate still runs when the licence filter is on
 - Date: 2026-11-08
 
 ## Context

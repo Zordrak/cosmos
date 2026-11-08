@@ -14,8 +14,7 @@ internal data class IntBox(val left: Int, val top: Int, val right: Int, val bott
 internal data class Placement(val source: IntBox, val destination: IntBox)
 
 /**
- * Places an image on a screen for a [DisplayMode]. Every mode except [DisplayMode.STRETCH]
- * preserves the aspect ratio. [physicalWidth] is the panel's native width, used by
+ * Places an image on a screen while preserving its aspect ratio. [physicalWidth] is the panel's native width, used by
  * [DisplayMode.ORIGINAL] when the view is rendered at a lower resolution and upscaled.
  */
 internal fun placement(
@@ -32,6 +31,10 @@ internal fun placement(
     return when (mode) {
         DisplayMode.FIT -> centred(fitScale, imageWidth, imageHeight, screenWidth, screenHeight)
         DisplayMode.FILL -> centred(fillScale, imageWidth, imageHeight, screenWidth, screenHeight)
+        DisplayMode.STRETCH -> Placement(
+            IntBox(0, 0, imageWidth, imageHeight),
+            IntBox(0, 0, screenWidth, screenHeight)
+        )
         DisplayMode.AUTO -> centred(
             if (fitScale / fillScale >= AUTO_FILL_THRESHOLD) fillScale else fitScale,
             imageWidth, imageHeight, screenWidth, screenHeight
@@ -40,15 +43,11 @@ internal fun placement(
             screenWidth.toDouble() / physicalWidth.coerceAtLeast(1),
             imageWidth, imageHeight, screenWidth, screenHeight
         )
-        DisplayMode.STRETCH -> Placement(
-            IntBox(0, 0, imageWidth, imageHeight),
-            IntBox(0, 0, screenWidth, screenHeight)
-        )
     }
 }
 
-/** Fill only crops when at least this share of each dimension stays visible. */
-internal const val AUTO_FILL_THRESHOLD = 0.8
+/** [DisplayMode.AUTO] fills only when at least this share of the image's area stays visible. */
+internal const val AUTO_FILL_THRESHOLD = 0.85
 
 /** Centres the image at [scale] and clips it to the screen. */
 private fun centred(scale: Double, imageWidth: Int, imageHeight: Int, screenWidth: Int, screenHeight: Int): Placement {

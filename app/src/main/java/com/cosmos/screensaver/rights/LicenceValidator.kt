@@ -8,6 +8,7 @@ import java.util.Locale
 
 internal enum class AssetProvider {
     NASA,
+    APOD,
     ESA_HUBBLE,
     ESA_WEBB,
     ESO,
@@ -231,7 +232,7 @@ internal class LicenceValidator(
         }
 
         when (provider) {
-            AssetProvider.NASA -> {
+            AssetProvider.NASA, AssetProvider.APOD -> {
                 if (evidence.basis != RightsBasis.NASA_PUBLIC_DOMAIN) {
                     return reject(RightsRejection.UNSUPPORTED_RIGHTS_BASIS)
                 }
@@ -287,7 +288,7 @@ internal class LicenceValidator(
         val host = uri.host?.lowercase(Locale.ROOT) ?: return false
         val path = uri.rawPath
         val approvedHost = when (provider) {
-            AssetProvider.NASA -> host == "nasa.gov" || host.endsWith(".nasa.gov")
+            AssetProvider.NASA, AssetProvider.APOD -> host == "nasa.gov" || host.endsWith(".nasa.gov")
             else -> DjangoplicitySite.forProvider(provider)?.hosts?.contains(host) == true
         }
         return uri.scheme.equals("https", ignoreCase = true) &&

@@ -93,13 +93,11 @@ class DjangoplicityParserTest {
     }
 
     @Test
-    fun acceptsObservationsAndOnlyCuratedPhotographs() {
+    fun acceptsOnlyObservations() {
         val eso = DjangoplicitySite.ESO
-        assertTrue(eso.acceptsType("Observation", "eso9901a"))
-        assertTrue(eso.acceptsType("Photographic", "potw9901a"))
-        assertFalse(eso.acceptsType("Photographic", "ann9901a"))
-        assertFalse(hubble.acceptsType("Photographic", "potw9901a"))
-        assertFalse(hubble.acceptsType("Artwork", "heic9901a"))
+        assertTrue(eso.acceptsType("Observation"))
+        assertFalse(eso.acceptsType("Photographic"))
+        assertFalse(hubble.acceptsType("Artwork"))
     }
 
     @Test
@@ -142,7 +140,7 @@ class DjangoplicityParserTest {
 
     @Test
     fun excludesNavigationPaths() {
-        listOf("archive", "potw", "iotw", "comparisons", "top100", "viewall", "a", "Upper").forEach {
+        listOf("archive", "potw", "iotw", "comparisons", "top100", "viewall", "a", "ARCHIVE", "has space").forEach {
             assertFalse(it, DjangoplicityParser.isAssetId(it))
         }
         assertTrue(DjangoplicityParser.isAssetId("opo0501a"))
