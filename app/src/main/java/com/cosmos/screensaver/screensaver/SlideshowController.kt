@@ -25,6 +25,7 @@ import com.cosmos.screensaver.sync.ImageStreamer
 import com.cosmos.screensaver.sync.LibraryStorage
 import com.cosmos.screensaver.sync.RefreshCoordinator
 import com.cosmos.screensaver.sync.RefreshJobService
+import com.cosmos.screensaver.sync.RefreshProgress
 import com.cosmos.screensaver.sync.StreamQueue
 import java.io.File
 import java.io.IOException
@@ -125,7 +126,8 @@ internal class SlideshowController(
         // Armed before any decoding or network work so a slow start is never silent for long.
         startedAtMillis = SystemClock.uptimeMillis()
         startup.start(startedAtMillis, context.getString(R.string.slideshow_preparing))
-        mainHandler.postDelayed({ if (gen == generation) refreshStatus() }, StartupStatus.DEFAULT_DELAY_MILLIS)
+        mainHandler.postDelayed(statusTick(gen), StartupStatus.DEFAULT_DELAY_MILLIS)
+        mainHandler.postDelayed(lateTick(gen), STATUS_TICK_MILLIS)
         RefreshJobService.ensureScheduled(context)
         val thread = HandlerThread("cosmos-slideshow").also { it.start() }
         worker = thread
@@ -168,7 +170,48 @@ internal class SlideshowController(
     }
 
     private fun refreshStatus() {
-        view.showMessage(startup.visibleText(SystemClock.uptimeMillis()))
+        val now = SystemClock.uptimeMillis()
+        val base = startup.visibleText(now)
+        view.showMessage(base?.let { liveProgress() ?: it })
+    }
+
+    /**
+     * What the slideshow is waiting on right now, in the words the settings screens use: finding or
+     * downloading a picture to play online, or saving pictures. Null when nothing is in progress.
+     */
+    private fun liveProgress(streamingOnly: Boolean = false): String? {
+        val wall = System.currentTimeMillis()
+        val streamed = com.cosmos.screensaver.ui.LibraryStatus.streaming(RefreshProgress.streaming.snapshot(), wall)
+        val (model, prefix) = when {
+            streamed != null -> streamed to "Online \u00B7 "
+            !streamingOnly && RefreshCoordinator.isRunning ->
+                com.cosmos.screensaver.ui.LibraryStatus.saving(RefreshProgress.saving.snapshot(), 0L, wall) to ""
+            else -> return null
+        }
+        if (!model.busy) return null
+        val text = com.cosmos.screensaver.ui.LibraryStatus.describe(model, prefix)
+        return listOf(text.headline, text.detail, text.problem).filter { it.isNotEmpty() }.joinToString("\n")
+    }
+
+    private fun statusTick(gen: Int): Runnable = Runnable {
+        if (gen != generation || pictureOnScreen) return@Runnable
+        refreshStatus()
+        mainHandler.postDelayed(statusTick(gen), STATUS_TICK_MILLIS)
+    }
+
+    /** Uptime when the worker started preparing the next picture; 0 while it is not. */
+    @Volatile private var preparingSince = 0L
+
+    /**
+     * Once a picture is up, shows a small progress line whenever the next one is late (still being
+     * found or downloaded a few seconds after it was due), and clears it as soon as it arrives.
+     */
+    private fun lateTick(gen: Int): Runnable = Runnable {
+        if (gen != generation) return@Runnable
+        val since = preparingSince
+        val late = pictureOnScreen && since > 0L && SystemClock.uptimeMillis() - since >= LATE_AFTER_MILLIS
+        view.progressLine = if (late) liveProgress(streamingOnly = true) ?: context.getString(R.string.slideshow_next_preparing) else null
+        mainHandler.postDelayed(lateTick(gen), STATUS_TICK_MILLIS)
     }
 
     /** Runs on the main thread when the first picture of this session has reached the screen. */
@@ -243,7 +286,12 @@ internal class SlideshowController(
     private fun advance() {
         val handler = workerHandler ?: return
         val gen = generation
-        val shown = showNextImage()
+        preparingSince = SystemClock.uptimeMillis()
+        val shown = try {
+            showNextImage()
+        } finally {
+            preparingSince = 0L
+        }
         if (shown) {
             shownAny = true
             val seconds = if (streamedLast && !settings.streamOnly) {
@@ -490,6 +538,8 @@ internal class SlideshowController(
     companion object {
         private const val TAG = "CosmosSlideshow"
         private const val DIAGNOSTICS_MILLIS = 1_000L
+        private const val STATUS_TICK_MILLIS = 1_000L
+        private const val LATE_AFTER_MILLIS = 2_500L
         private const val MIB = 1024L * 1024
         private const val MAX_ATTEMPTS = 3
         private const val EMPTY_RETRY_MILLIS = 20_000L

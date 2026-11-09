@@ -110,6 +110,14 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
             field = value
             requestDraw()
         }
+
+    /** A quiet line shown over the picture while the next one is late (e.g. still downloading); null hides it. */
+    var progressLine: String? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            requestDraw()
+        }
     private val diagnosticsPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         typeface = Typeface.MONOSPACE
@@ -362,7 +370,28 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
             canvas.drawColor(Color.BLACK)
             renderPictures(canvas, slide, now)
         }
+        progressLine?.let { if (slide != null) drawProgress(canvas, it) }
         diagnostics?.let { drawDiagnostics(canvas, it) }
+    }
+
+    /** Top right, small and dim, on a soft backing so it reads over any picture. */
+    private fun drawProgress(canvas: Canvas, text: String) {
+        val unit = bufferHeight / 1080f
+        val margin = 48f * unit
+        val pad = 12f * unit
+        statusPaint.textSize = 20f * unit
+        statusPaint.alpha = STATUS_ALPHA
+        val width = (bufferWidth * 0.4f).toInt().coerceAtLeast(1)
+        val layout = staticLayout(text, statusPaint, width)
+        val textWidth = (0 until layout.lineCount).maxOfOrNull { layout.getLineWidth(it) } ?: 0f
+        val left = bufferWidth - margin - textWidth - pad * 2
+        diagnosticsBacking.alpha = 140
+        canvas.drawRoundRect(left, margin, bufferWidth - margin, margin + layout.height + pad * 2, 8f * unit, 8f * unit, diagnosticsBacking)
+        diagnosticsBacking.alpha = 0xC0
+        canvas.save()
+        canvas.translate(left + pad, margin + pad)
+        layout.draw(canvas)
+        canvas.restore()
     }
 
     private fun renderPictures(canvas: Canvas, slide: Slide?, now: Long) {

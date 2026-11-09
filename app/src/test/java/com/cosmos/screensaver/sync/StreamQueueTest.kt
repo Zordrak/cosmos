@@ -50,6 +50,28 @@ class StreamQueueTest {
     ) = queue.choose(mode, state, now, normal, failed, random)
 
     @Test
+    fun aQuickRefillStopsAtTheFirstSourceWithPicturesThenTheNextRefillAsksEveryone() {
+        val asked = mutableListOf<String>()
+        val queue = StreamQueue()
+        val adapters = listOf(
+            Adapter(AssetProvider.NASA, listOf("a", "b")),
+            Adapter(AssetProvider.APOD, listOf("c"))
+        )
+
+        queue.refill(adapters, noFetcher, Random(1), quick = true) { asked += it }
+
+        assertEquals(1, asked.size)
+        assertTrue(queue.needsRefill())
+
+        asked.clear()
+        queue.refill(adapters, noFetcher, Random(1)) { asked += it }
+
+        assertEquals(2, asked.size)
+        assertEquals(3, queue.size)
+        assertFalse(queue.needsRefill())
+    }
+
+    @Test
     fun blockedLeadsNeverEnterTheQueue() {
         val queue = queueOf(Adapter(AssetProvider.NASA, listOf("a", "b", "c")), isBlocked = { it == "NASA:b" })
 

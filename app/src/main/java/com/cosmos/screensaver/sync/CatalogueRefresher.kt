@@ -475,7 +475,10 @@ internal class CatalogueRefresher(
         var refilledThisCall = false
         fun refill() {
             run?.discovering()
-            queue.refill(adapters, fetcher, random) { key -> userState.load().isBlocked(key, null) }
+            val quick = queue.isEmpty
+            queue.refill(adapters, fetcher, random, { key -> userState.load().isBlocked(key, null) }, quick) { label ->
+                run?.discovering(label)
+            }
             refilledThisCall = true
         }
         repeat(MAX_STREAM_PROBES) {

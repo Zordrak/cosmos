@@ -49,21 +49,37 @@ internal class StreamQueue {
     }
 
     /** True when every discovered lead has had a turn, so a new discovery is worth its network cost. */
-    fun needsRefill(): Boolean = leads.isEmpty() || servedSinceRefill >= leads.size
+    fun needsRefill(): Boolean = leads.isEmpty() || partial || servedSinceRefill >= leads.size
+
+    /** Nothing has been discovered yet (or the last discovery found nothing). */
+    val isEmpty: Boolean get() = leads.isEmpty()
+
+    /** The last refill stopped at the first source that answered, to show a first picture sooner. */
+    private var partial = false
 
     fun noteServed() {
         servedSinceRefill++
     }
 
-    /** Replaces the available leads with a fresh discovery from every source, skipping blocked keys. */
+    /**
+     * Replaces the available leads with a fresh discovery from every source, skipping blocked keys.
+     * When [quick], it stops at the first source with anything to offer, so a first picture is not
+     * kept waiting on every source; the next refill then asks them all. [onSource] names each
+     * source as it is asked, for the status line.
+     */
     fun refill(
         adapters: List<SourceAdapter>,
         fetcher: Fetcher,
         random: Random,
-        isBlocked: (key: String) -> Boolean = { false }
+        isBlocked: (key: String) -> Boolean = { false },
+        quick: Boolean = false,
+        onSource: (String) -> Unit = {}
     ) {
         val found = linkedMapOf<String, Available>()
-        adapters.shuffled(random).forEach { adapter ->
+        var stoppedEarly = false
+        val order = adapters.shuffled(random)
+        for ((index, adapter) in order.withIndex()) {
+            onSource(adapter.label)
             val discovered = try {
                 adapter.discover(fetcher, random).leads
             } catch (error: IOException) {
@@ -73,10 +89,15 @@ internal class StreamQueue {
                 val key = keyOf(adapter, lead)
                 if (!isBlocked(key) && key !in found) found[key] = Available(adapter, lead)
             }
+            if (quick && found.isNotEmpty()) {
+                stoppedEarly = index < order.lastIndex
+                break
+            }
         }
         leads.clear()
         leads.putAll(found)
         servedSinceRefill = 0
+        partial = stoppedEarly
     }
 
     /**

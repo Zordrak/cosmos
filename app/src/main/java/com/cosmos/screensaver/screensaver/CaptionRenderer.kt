@@ -42,7 +42,9 @@ internal class CaptionRenderer {
         val lines: List<StaticLayout>,
         val textWidth: Float,
         val textHeight: Float,
-        val gap: Float
+        val gap: Float,
+        /** Each line's text scale, so its shadow can be redrawn faded. */
+        val shadowUnits: List<Float>
     )
 
     private val cache = object : LinkedHashMap<CaptionGeometry.Key, Laid>(8, 0.75f, true) {
@@ -81,9 +83,12 @@ internal class CaptionRenderer {
         }
 
         var y = top + padding
-        for (textLayout in caption.lines) {
+        caption.lines.forEachIndexed { index, textLayout ->
             val originalAlpha = textLayout.paint.alpha
             textLayout.paint.alpha = (alpha * originalAlpha).toInt().coerceIn(0, 255)
+            // The shadow must fade with the text, or it lingers as a dark ghost of the credit.
+            val shadowUnit = caption.shadowUnits[index]
+            textLayout.paint.setShadowLayer(3f * shadowUnit, 0f, shadowUnit, Color.argb((alpha * SHADOW_ALPHA).toInt().coerceIn(0, 255), 0, 0, 0))
             canvas.save()
             val x = if (onLeft) left + padding else left + padding + caption.textWidth - lineWidth(textLayout)
             canvas.translate(x, y)
@@ -125,7 +130,7 @@ internal class CaptionRenderer {
             textHeight = lines.sumOf { it.height } + gap * (lines.size - 1)
             if (textHeight > availableHeight) scale *= 0.75f
         } while (textHeight > availableHeight && scale > 0.01f)
-        return Laid(lines, lines.maxOf(::lineWidth), textHeight, gap).also { cache[key] = it }
+        return Laid(lines, lines.maxOf(::lineWidth), textHeight, gap, List(lines.size) { unit * scale * sizeScale }).also { cache[key] = it }
     }
 
     private fun textPaint(sizeUnits: Float, unit: Float, typeface: String, baseAlpha: Int) =
@@ -134,7 +139,7 @@ internal class CaptionRenderer {
             alpha = baseAlpha
             textSize = sizeUnits * unit
             this.typeface = Typeface.create(typeface, Typeface.NORMAL)
-            setShadowLayer(3f * unit, 0f, unit, Color.argb(220, 0, 0, 0))
+            setShadowLayer(3f * unit, 0f, unit, Color.argb(SHADOW_ALPHA, 0, 0, 0))
         }
 
     private fun lineWidth(layout: StaticLayout): Float =
@@ -142,6 +147,7 @@ internal class CaptionRenderer {
 
     companion object {
         private const val CACHE_SIZE = 3
+        private const val SHADOW_ALPHA = 220
         private const val SUBTLE_ALPHA = 170
         private const val DETAILED_ALPHA = 225
         private const val DETAILED_SCRIM_ALPHA = 90
