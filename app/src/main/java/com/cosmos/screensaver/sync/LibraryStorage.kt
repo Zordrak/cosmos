@@ -3,6 +3,8 @@ package com.cosmos.screensaver.sync
 import android.content.Context
 import android.util.Log
 import com.cosmos.screensaver.catalogue.CatalogueStore
+import com.cosmos.screensaver.catalogue.StoreRead
+import com.cosmos.screensaver.catalogue.UserStateStore
 import java.io.File
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
@@ -65,6 +67,7 @@ internal object LibraryStorage {
         if (result !is LibraryMigration.Result.Failed) {
             val store = CatalogueStore(filesDir)
             if (store.quarantineCorrupt()) Log.w(TAG, "A damaged library index was set aside")
+            (store.read() as? StoreRead.Ok)?.let { UserStateStore(filesDir).ensureSeeded(it.catalogue, System.currentTimeMillis()) }
         }
         return result
     }

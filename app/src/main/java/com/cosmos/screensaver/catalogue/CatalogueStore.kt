@@ -120,6 +120,9 @@ internal class CatalogueStore(
     companion object {
         private const val TAG = "CosmosCatalogue"
         private val LOCK = Any()
+
+        /** The one library lock, for state that must change atomically with the catalogue (user state, Undo). */
+        fun <T> locked(block: () -> T): T = synchronized(LOCK) { block() }
     }
 }
 
