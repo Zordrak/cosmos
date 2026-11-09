@@ -220,7 +220,7 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
             visibility = View.INVISIBLE
         }
         val detail = ui.text(" ", SettingsType.SUMMARY, SettingsColors.SECONDARY)
-        val notice = ui.text(" ", SettingsType.SUMMARY, SettingsColors.SECONDARY)
+        val notice = ui.text("", SettingsType.SUMMARY, SettingsColors.SECONDARY).apply { visibility = View.GONE }
         statusHeadline = headline
         statusBar = bar
         statusDetail = detail
@@ -659,8 +659,9 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
                 notice.setTextColor(SettingsColors.SECONDARY)
                 notice.text = listOf(streamText.headline, streamText.detail).filter { it.isNotEmpty() }.joinToString(" \u00B7 ")
             }
-            else -> notice.text = " "
+            else -> notice.text = ""
         }
+        notice.visibility = if (notice.text.isEmpty()) View.GONE else View.VISIBLE
 
         val changed = snapshot.runId != lastRunId || snapshot.admitted != lastAdmitted || (wasActive && !snapshot.active)
         val firstPoll = lastRunId == -1L
