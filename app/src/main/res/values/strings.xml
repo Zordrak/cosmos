@@ -217,7 +217,19 @@
     <string name="undo_failed">Undo did not work.</string>
 
     <!-- When it starts -->
-    <string name="when_left_body">The TV decides when its screensaver starts, and it can delay it. Press any button to stop the screensaver.</string>
+    <string name="when_left_body">Start after is the TV\'s own inactivity timer, shared by every app, not a timer inside Cosmos. The TV, or an app that is playing, can delay the screensaver. Press any button to stop it.</string>
+    <string name="row_start_after">Start after</string>
+    <string name="start_after_summary">How long the TV sits unused before the screensaver can start.</string>
+    <string name="start_after_needs_permission">Cosmos needs your permission to change the TV\'s timer. Select to allow it.</string>
+    <string name="start_after_unsupported">This TV doesn\'t let Cosmos change this. Select to open the TV\'s screensaver settings.</string>
+    <string name="idle_minutes_seconds">%1$d min %2$d s</string>
+    <string name="idle_value_unknown">Set by the TV</string>
+    <string name="idle_value_unsupported">Can\'t check</string>
+    <string name="idle_home_value">After %1$s</string>
+    <string name="idle_write_needs_permission">Cosmos isn\'t allowed to change this yet. Select Start after to allow it.</string>
+    <string name="idle_write_unsupported">This TV doesn\'t let Cosmos change this. Use the TV\'s own settings.</string>
+    <string name="idle_write_refused">The TV didn\'t accept that change. It is now set to: %1$s.</string>
+    <string name="idle_permission_unavailable">Cosmos couldn\'t open the permission screen. Allow Cosmos to change system settings in the TV\'s own settings, or set the screensaver timer there.</string>
     <string name="row_tv_screensaver">TV screensaver</string>
     <string name="tv_screensaver_cosmos">Cosmos</string>
     <string name="tv_screensaver_other">Another</string>

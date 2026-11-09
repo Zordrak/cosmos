@@ -2,6 +2,7 @@ package com.cosmos.screensaver.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -17,6 +18,8 @@ import com.cosmos.screensaver.SettingsActivity
 import com.cosmos.screensaver.launchDreamSettings
 import com.cosmos.screensaver.screensaver.PreviewActivity
 import com.cosmos.screensaver.settings.CosmosSettings
+import com.cosmos.screensaver.settings.AndroidIdleSetting
+import com.cosmos.screensaver.settings.IdleTime
 import com.cosmos.screensaver.settings.ScreensaverSelection
 import com.cosmos.screensaver.sync.LibraryStorage
 import com.cosmos.screensaver.sync.RefreshCoordinator
@@ -29,6 +32,7 @@ import com.cosmos.screensaver.sync.RefreshCoordinator
 internal class SettingsScreen(override val activity: Activity, private val page: Page) : PageEnv {
     override val settings = CosmosSettings(activity)
     override val text = SettingsText(activity)
+    override val idleTime = IdleTime(AndroidIdleSetting(activity)) { message, error -> Log.w(TAG, message, error) }
     override var snapshot = LibrarySnapshot()
         private set
 
@@ -142,6 +146,26 @@ internal class SettingsScreen(override val activity: Activity, private val page:
             onUnavailable = { error ->
                 Log.w(TAG, "Unable to open system screensaver settings", error)
                 Toast.makeText(activity, R.string.home_settings_unavailable, Toast.LENGTH_LONG).show()
+            }
+        )
+    }
+
+    override fun requestWriteSettings() {
+        launchDreamSettings(
+            launch = {
+                activity.startActivity(
+                    Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${activity.packageName}"))
+                )
+            },
+            onUnavailable = { error ->
+                Log.w(TAG, "Unable to open the write-settings permission screen", error)
+                launchDreamSettings(
+                    launch = { activity.startActivity(Intent(Settings.ACTION_DREAM_SETTINGS)) },
+                    onUnavailable = { fallbackError ->
+                        Log.w(TAG, "Unable to open system screensaver settings", fallbackError)
+                        Toast.makeText(activity, R.string.idle_permission_unavailable, Toast.LENGTH_LONG).show()
+                    }
+                )
             }
         )
     }

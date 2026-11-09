@@ -7,6 +7,7 @@ import android.text.format.DateUtils
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.settings.CaptionMode
@@ -18,6 +19,9 @@ import com.cosmos.screensaver.settings.CollectionPreset
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.settings.DisplayMode
 import com.cosmos.screensaver.settings.HomeSummaries
+import com.cosmos.screensaver.settings.IdleReading
+import com.cosmos.screensaver.settings.IdleTime
+import com.cosmos.screensaver.settings.IdleWrite
 import com.cosmos.screensaver.settings.LicenceMode
 import com.cosmos.screensaver.settings.QualityPreference
 import com.cosmos.screensaver.settings.ScreensaverSelection
@@ -48,6 +52,12 @@ internal interface PageEnv {
     fun lookForNewPictures()
     fun startPreview()
     fun openTvScreensaverSettings()
+
+    /** The TV's inactivity timeout, which Start after reads and changes. */
+    val idleTime: IdleTime
+
+    /** Opens the system screen where the user allows Cosmos to change system settings. */
+    fun requestWriteSettings()
     fun screensaverSelection(): ScreensaverSelection
 }
 
@@ -105,7 +115,10 @@ internal class SettingsPages(private val env: PageEnv) {
                 }.ifEmpty { null }
             }
         ) { env.openPage(Page.SAVED_PICTURES) }
-        ui.action("when", s(R.string.home_when), { s(R.string.home_when_summary) }) { env.openPage(Page.WHEN_IT_STARTS) }
+        ui.action(
+            "when", s(R.string.home_when), { s(R.string.home_when_summary) },
+            value = { text.idleHome(env.idleTime.read()) }
+        ) { env.openPage(Page.WHEN_IT_STARTS) }
         ui.action("more", s(R.string.home_more), { s(R.string.home_more_summary) }) { env.openPage(Page.MORE) }
         return PageContent(ui.rows) {
             updateStatus()
@@ -422,6 +435,28 @@ internal class SettingsPages(private val env: PageEnv) {
     private fun whenItStarts(left: LinearLayout): PageContent {
         val ui = SettingsUi(activity)
         subPageLeft(ui, left, R.string.home_when, R.string.when_left_body)
+        ui.choice(
+            "start_after", s(R.string.row_start_after),
+            options = {
+                IdleTime.CHOICE_MINUTES.map {
+                    PickerOption(it * IdleTime.MILLIS_PER_MINUTE, text.idleChoiceLabel(it))
+                }
+            },
+            current = { (env.idleTime.read() as? IdleReading.Known)?.millis ?: -1 },
+            onChosen = { changeIdleTime(it / IdleTime.MILLIS_PER_MINUTE) },
+            summary = { s(R.string.start_after_summary) },
+            valueLabel = { text.idleValue(env.idleTime.read()) },
+            enabledReason = {
+                when {
+                    env.idleTime.read() == IdleReading.Unsupported -> s(R.string.start_after_unsupported)
+                    !env.idleTime.canWrite() -> s(R.string.start_after_needs_permission)
+                    else -> null
+                }
+            },
+            onUnavailable = {
+                if (env.idleTime.read() == IdleReading.Unsupported) env.openTvScreensaverSettings() else env.requestWriteSettings()
+            }
+        )
         ui.action(
             "tv_screensaver", s(R.string.row_tv_screensaver),
             summary = {
@@ -446,6 +481,18 @@ internal class SettingsPages(private val env: PageEnv) {
             }
         ) { env.openTvScreensaverSettings() }
         return PageContent(ui.rows)
+    }
+
+    /** Changes the TV's inactivity timeout and tells the user plainly when the TV did not do what was asked. */
+    private fun changeIdleTime(minutes: Int) {
+        val message = when (val result = env.idleTime.write(minutes)) {
+            is IdleWrite.Applied, IdleWrite.NotAChoice -> return
+            IdleWrite.NeedsPermission -> s(R.string.idle_write_needs_permission)
+            IdleWrite.Unsupported -> s(R.string.idle_write_unsupported)
+            is IdleWrite.Refused -> activity.getString(R.string.idle_write_refused, text.idleValue(result.reading))
+            is IdleWrite.Mismatch -> activity.getString(R.string.idle_write_refused, text.idleValue(result.reading))
+        }
+        Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
     }
 
     private fun more(left: LinearLayout): PageContent {

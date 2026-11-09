@@ -7,6 +7,8 @@ import com.cosmos.screensaver.settings.CaptionSize
 import com.cosmos.screensaver.settings.OrderMode
 import com.cosmos.screensaver.settings.CollectionPreset
 import com.cosmos.screensaver.settings.DisplayMode
+import com.cosmos.screensaver.settings.IdleReading
+import com.cosmos.screensaver.settings.IdleTime
 import com.cosmos.screensaver.settings.QualityPreference
 import com.cosmos.screensaver.settings.SummaryLabels
 
@@ -124,6 +126,32 @@ internal class SettingsText(private val context: Context) : SummaryLabels {
         } else {
             context.resources.getQuantityString(R.plurals.minutes, seconds / 60, seconds / 60)
         }
+
+    /** The TV's inactivity timeout as the user reads it: "10 minutes", or an odd system value exactly as it is. */
+    fun idleValue(reading: IdleReading): String = when (reading) {
+        is IdleReading.Known -> {
+            val whole = IdleTime.wholeMinutes(reading.millis)
+            if (whole != null) {
+                context.resources.getQuantityString(R.plurals.minutes, whole, whole)
+            } else {
+                val (minutes, seconds) = IdleTime.minutesAndSeconds(reading.millis)
+                if (minutes == 0) {
+                    context.resources.getQuantityString(R.plurals.seconds, seconds, seconds)
+                } else {
+                    context.getString(R.string.idle_minutes_seconds, minutes, seconds)
+                }
+            }
+        }
+        is IdleReading.Unknown -> s(R.string.idle_value_unknown)
+        IdleReading.Unsupported -> s(R.string.idle_value_unsupported)
+    }
+
+    /** The Home value for "When it starts", or null when the TV's value is not known. */
+    fun idleHome(reading: IdleReading): String? =
+        (reading as? IdleReading.Known)?.let { context.getString(R.string.idle_home_value, idleValue(it)) }
+
+    /** The label of one idle-time choice, e.g. "10 minutes". */
+    fun idleChoiceLabel(minutes: Int): String = context.resources.getQuantityString(R.plurals.minutes, minutes, minutes)
 
     /** "Every minute", "Every 30 seconds": the Home summary form. */
     override fun interval(seconds: Int): String = when {
