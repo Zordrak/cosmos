@@ -158,6 +158,18 @@ class DeepCrawlTest {
     }
 
     @Test
+    fun keepsReadingPastPagesWithNothingNewUntilSomethingTurnsUp() {
+        val pages = 14
+        val fake = fetcherWithGalaxies(pages)
+        val adapter = DjangoplicityAdapter(hubble, ListingCache(null)) { 0L }
+        val done = (1 until pages).flatMap { listOf("heic${it}01a", "heic${it}02a") }.toSet()
+
+        val ids = adapter.discover(fake, Random(1), filter(done = done)).leads.map { it.id }
+
+        assertEquals(listOf("heic${pages}01a", "heic${pages}02a"), ids)
+    }
+
+    @Test
     fun aTimedOutHeadlineListingStillLetsTheArchiveBeWalked() {
         val fake = object : Fetcher {
             override fun fetchText(url: String, maxBytes: Int): String = when (url) {

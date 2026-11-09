@@ -100,7 +100,10 @@ internal class DjangoplicityAdapter(
                 val now = clock()
                 val ttl = if (depth == 1) HEAD_REFETCH_MILLIS else BODY_REFETCH_MILLIS
                 val stale = page == null || now - page.fetchedAtEpochMillis !in 0..ttl
-                if (stale && fetches < MAX_LISTING_FETCHES && freshCount() < LEAD_WINDOW) {
+                // Up to a few pages ahead once there is something to work on; while nothing new has
+                // turned up yet, keep reading, or a run of exhausted pages would look like the end.
+                val budget = fetches < MAX_LISTING_FETCHES || freshCount() == 0
+                if (stale && budget && freshCount() < LEAD_WINDOW) {
                     fetches++
                     try {
                         val html = fetcher.fetchText(site.categoryUrl(category, depth))
