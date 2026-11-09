@@ -105,4 +105,39 @@ class SettingsShellTest {
         assertEquals("WIFI_ONLY", prefs.data["download_mode"])
         assertEquals(7, prefs.data["idle_minutes"])
     }
+
+    @Test
+    fun `order defaults to fair and an unknown stored value falls back`() {
+        val prefs = FakeSharedPreferences()
+        val s = settings(prefs)
+        assertEquals(OrderMode.FAIR, s.orderMode)
+        s.orderMode = OrderMode.SEQUENTIAL
+        assertEquals(OrderMode.SEQUENTIAL, s.orderMode)
+        prefs.data["order_mode"] = "SOMETHING_NEW"
+        assertEquals(OrderMode.FAIR, s.orderMode)
+    }
+
+    @Test
+    fun `source weight defaults to normal and normal removes the key`() {
+        val prefs = FakeSharedPreferences()
+        val s = settings(prefs)
+        assertEquals(SourceWeight.NORMAL, s.sourceWeight(AssetProvider.ESA_WEBB))
+        s.setSourceWeight(AssetProvider.ESA_WEBB, SourceWeight.MORE)
+        assertEquals(SourceWeight.MORE, s.sourceWeight(AssetProvider.ESA_WEBB))
+        assertEquals(SourceWeight.NORMAL, s.sourceWeight(AssetProvider.ESA_HUBBLE))
+        s.setSourceWeight(AssetProvider.ESA_WEBB, SourceWeight.NORMAL)
+        assertFalse(prefs.data.keys.any { it.startsWith("weight_") })
+    }
+
+    @Test
+    fun `reset clears order and every source weight`() {
+        val prefs = FakeSharedPreferences()
+        val s = settings(prefs)
+        s.orderMode = OrderMode.RANDOM
+        s.setSourceWeight(AssetProvider.ESA_WEBB, SourceWeight.LESS)
+        s.setSourceWeight(AssetProvider.ESA_HUBBLE, SourceWeight.MORE)
+        s.resetViewingSettings()
+        assertEquals(OrderMode.FAIR, s.orderMode)
+        assertFalse(prefs.data.keys.any { it.startsWith("weight_") || it == "order_mode" })
+    }
 }

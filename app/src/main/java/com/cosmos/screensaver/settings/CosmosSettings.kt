@@ -3,6 +3,7 @@ package com.cosmos.screensaver.settings
 import android.content.Context
 import android.content.SharedPreferences
 import com.cosmos.screensaver.rights.AssetProvider
+import java.util.Locale
 
 /** Local-only preferences. Nothing here leaves the device. */
 internal class CosmosSettings(private val preferences: SharedPreferences) {
@@ -33,6 +34,19 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
     var licenceMode: LicenceMode
         get() = preferences.enumValue(KEY_LICENCE_MODE, DEFAULT_LICENCE_MODE)
         set(value) = preferences.edit().putString(KEY_LICENCE_MODE, value.name).apply()
+
+    var orderMode: OrderMode
+        get() = preferences.enumValue(KEY_ORDER_MODE, DEFAULT_ORDER_MODE)
+        set(value) = preferences.edit().putString(KEY_ORDER_MODE, value.name).apply()
+
+    fun sourceWeight(provider: AssetProvider): SourceWeight =
+        parseEnumPreference(preferences.getString(weightKey(provider), null), SourceWeight.NORMAL)
+
+    fun setSourceWeight(provider: AssetProvider, weight: SourceWeight) {
+        val editor = preferences.edit()
+        if (weight == SourceWeight.NORMAL) editor.remove(weightKey(provider)) else editor.putString(weightKey(provider), weight.name)
+        editor.apply()
+    }
 
     /** Streams every image instead of using the cache; the cache is left untouched. */
     var streamOnly: Boolean
@@ -68,11 +82,16 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
     fun resetViewingSettings() {
         val editor = preferences.edit()
         VIEWING_KEYS.forEach { editor.remove(it) }
-        AssetProvider.entries.forEach { editor.remove(sourceKey(it)) }
+        AssetProvider.entries.forEach {
+            editor.remove(sourceKey(it))
+            editor.remove(weightKey(it))
+        }
         editor.apply()
     }
 
-    private fun sourceKey(provider: AssetProvider) = "source_${provider.name.lowercase()}"
+    private fun sourceKey(provider: AssetProvider) = "source_${provider.name.lowercase(Locale.ROOT)}"
+
+    private fun weightKey(provider: AssetProvider) = "weight_${provider.name.lowercase(Locale.ROOT)}"
 
     companion object {
         const val PREFERENCES_NAME = "cosmos_settings"
@@ -82,6 +101,8 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         private const val KEY_QUALITY = "quality"
         private const val KEY_LICENCE_MODE = "licence_mode"
         private const val KEY_STREAM_ONLY = "stream_only"
+        private const val KEY_ORDER_MODE = "order_mode"
+        val DEFAULT_ORDER_MODE = OrderMode.FAIR
         const val DEFAULT_INTERVAL_SECONDS = 60
         val DEFAULT_DISPLAY_MODE = DisplayMode.FILL
         val DEFAULT_CAPTION_MODE = CaptionMode.SUBTLE
@@ -95,8 +116,9 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
          * (order, source weights, credit size) MUST add its key here so Reset covers it.
          */
         private val VIEWING_KEYS = listOf(
-            KEY_INTERVAL, KEY_DISPLAY_MODE, KEY_CAPTION_MODE, KEY_QUALITY, KEY_LICENCE_MODE, KEY_STREAM_ONLY
-        )
+            KEY_INTERVAL, KEY_DISPLAY_MODE, KEY_CAPTION_MODE,             KEY_QUALITY, KEY_LICENCE_MODE, KEY_STREAM_ONLY,
+                        KEY_ORDER_MODE
+                    )
 
         fun collectionFor(enabled: Set<AssetProvider>): CollectionPreset =
             CollectionPreset.entries.firstOrNull { it.providers == enabled } ?: CollectionPreset.CUSTOM

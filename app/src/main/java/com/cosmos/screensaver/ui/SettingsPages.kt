@@ -11,6 +11,7 @@ import android.widget.TextView
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.settings.CaptionMode
+import com.cosmos.screensaver.settings.OrderMode
 import com.cosmos.screensaver.settings.COLLECTION_CHOICES
 import com.cosmos.screensaver.settings.COLLECTION_CYCLE
 import com.cosmos.screensaver.settings.CollectionPreset
@@ -82,7 +83,7 @@ internal class SettingsPages(private val env: PageEnv) {
         ) { env.openPage(Page.WHAT_TO_SHOW) }
         ui.action(
             "slideshow", s(R.string.home_slideshow), { s(R.string.home_slideshow_summary) },
-            value = { HomeSummaries.slideshow(text, settings.intervalSeconds, orderLabel = null) }
+            value = { HomeSummaries.slideshow(text, settings.intervalSeconds, orderLabel = text.orderMode(settings.orderMode)) }
         ) { env.openPage(Page.SLIDESHOW) }
         ui.action(
             "saved", s(R.string.home_saved), { s(R.string.home_saved_summary) },
@@ -264,6 +265,21 @@ internal class SettingsPages(private val env: PageEnv) {
             onChosen = { settings.intervalSeconds = it },
             summary = { s(R.string.row_interval_summary) },
             valueLabel = text::intervalValue
+        )
+        ui.choice(
+            "order", s(R.string.row_order),
+            options = {
+                OrderMode.entries.map {
+                    PickerOption(
+                        it, text.orderMode(it), text.orderModeSummary(it),
+                        recommended = it == CosmosSettings.DEFAULT_ORDER_MODE
+                    )
+                }
+            },
+            current = { settings.orderMode },
+            onChosen = { settings.orderMode = it },
+            summary = text::orderModeSummary,
+            valueLabel = text::orderMode
         )
         ui.choice(
             "fit", s(R.string.row_fit),

@@ -28,7 +28,13 @@ import com.cosmos.screensaver.settings.CaptionMode
  * shows 4K images pixel for pixel even though the app's logical display is 1080p.
  */
 internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
-    private class Slide(val frame: Frame, val attribution: Attribution, val captionOnLeft: Boolean) {
+    private class Slide(
+        val frame: Frame,
+        val attribution: Attribution,
+        val captionOnLeft: Boolean,
+        /** Runs once, after a frame in which this slide is visibly (nonzero alpha) posted to the screen. */
+        var onPosted: (() -> Unit)? = null
+    ) {
         val shownAt = SystemClock.uptimeMillis()
         var captionAlphaWhenReplaced = 0f
     }
@@ -126,13 +132,17 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         if (current == null) requestDraw()
     }
 
-    fun show(frame: Frame, attribution: Attribution) {
+    /**
+     * [onPosted] runs once on the main thread after the surface has really received a frame in which this
+     * picture is visible. It never runs if the picture is replaced first or the view detaches.
+     */
+    fun show(frame: Frame, attribution: Attribution, onPosted: (() -> Unit)? = null) {
         val now = SystemClock.uptimeMillis()
         previous?.frame?.bitmap?.takeIf { it !== current?.frame?.bitmap }?.recycle()
         current?.let { it.captionAlphaWhenReplaced = captionAlpha(it, now) }
         previous = current
         captionOnLeft = !captionOnLeft
-        current = Slide(frame, attribution, captionOnLeft)
+        current = Slide(frame, attribution, captionOnLeft, onPosted)
         mainHandler.removeCallbacks(captionFadeStarter)
         if (captionMode == CaptionMode.SUBTLE) mainHandler.postDelayed(captionFadeStarter, SUBTLE_HOLD_MILLIS)
         requestDraw()
@@ -179,17 +189,29 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         if (!surfaceReady || bufferWidth <= 0 || bufferHeight <= 0) return
         val surfaceHolder = holder
         val canvas = lock(surfaceHolder) ?: return
+        val now = SystemClock.uptimeMillis()
+        var posted = false
         try {
-            render(canvas, SystemClock.uptimeMillis())
+            render(canvas, now)
         } finally {
             try {
                 surfaceHolder.unlockCanvasAndPost(canvas)
+                posted = true
             } catch (error: IllegalStateException) {
                 Log.w(TAG, "Unable to post frame", error)
             } catch (error: IllegalArgumentException) {
                 Log.w(TAG, "Unable to post frame", error)
             }
         }
+        if (posted) notifyPosted(now)
+    }
+
+    private fun notifyPosted(now: Long) {
+        val slide = current ?: return
+        val callback = slide.onPosted ?: return
+        if (imageFade(slide, now) <= 0f) return
+        slide.onPosted = null
+        callback()
     }
 
     private fun lock(surfaceHolder: SurfaceHolder): Canvas? {

@@ -13,6 +13,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.util.Log
 import com.cosmos.screensaver.R
+import com.cosmos.screensaver.catalogue.CachedOrder
 import com.cosmos.screensaver.catalogue.CatalogueEntry
 import com.cosmos.screensaver.catalogue.LibraryMaintenance
 import com.cosmos.screensaver.rights.AssetProvider
@@ -25,6 +26,7 @@ import com.cosmos.screensaver.sync.RefreshCoordinator
 import com.cosmos.screensaver.sync.RefreshJobService
 import java.io.File
 import java.io.IOException
+import kotlin.random.Random
 
 /**
  * Drives a [SlideshowView] from the local catalogue. Decoding and integrity checks run on a
@@ -39,7 +41,8 @@ internal class SlideshowController(
     private val store = RefreshCoordinator.store(context)
     private val userState = LibraryStorage.userState(context)
     private val damagedKeys = mutableSetOf<String>()
-    private val order = SlideshowOrder()
+    private val random = Random.Default
+    @Volatile private var generation = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private var worker: HandlerThread? = null
     private var workerHandler: Handler? = null
@@ -50,6 +53,7 @@ internal class SlideshowController(
 
     fun start() {
         if (worker != null) return
+        generation++
         view.captionMode = settings.captionMode
         RefreshJobService.ensureScheduled(context)
         val thread = HandlerThread("cosmos-slideshow").also { it.start() }
@@ -59,6 +63,7 @@ internal class SlideshowController(
     }
 
     fun stop() {
+        generation++
         workerHandler?.removeCallbacksAndMessages(null)
         mainHandler.removeCallbacksAndMessages(null)
         worker?.quitSafely()
@@ -112,7 +117,9 @@ internal class SlideshowController(
         try {
             val frame = frameFor(streamer.file(entry), entry) ?: return false
             val attribution = Attribution.of(entry)
-            mainHandler.post { view.show(frame, attribution) }
+            val gen = generation
+            val library = store.load().entries.map(SelectionSnapshot::identity).toSet()
+            mainHandler.post { view.show(frame, attribution) { commitDisplay(gen, entry.sha256, library, null) } }
             return true
         } finally {
             streamer.discard(entry)
@@ -134,18 +141,46 @@ internal class SlideshowController(
             Log.w(TAG, "Streaming unavailable; falling back to cached images")
         }
         streamedLast = false
+        return showCachedImage(enabled)
+    }
+
+    private fun showCachedImage(enabled: Set<AssetProvider>): Boolean {
+        val gen = generation
+        val excluded = mutableSetOf<String>()
         repeat(MAX_ATTEMPTS) {
-            val entries = eligibleEntries(enabled)
-            val key = order.next(entries.map { it.key }) ?: return false
-            val entry = entries.first { it.key == key }
-            val frame = loadVerified(entry)
-            if (frame != null) {
-                val attribution = Attribution.of(entry)
-                mainHandler.post { view.show(frame, attribution) }
-                return true
+            // Waits for earlier history writes so the pick sees the previous display.
+            val (catalogue, state) = LibraryStorage.run { store.load() to userState.load() }
+            val snapshot = SelectionSnapshot.build(catalogue.entries, settings.selection, enabled, state)
+            val candidates = ImagePicker.candidates(snapshot, state, settings::sourceWeight, damagedKeys)
+            val library = catalogue.entries.map(SelectionSnapshot::identity).toSet()
+            val pick = ImagePicker.pick(
+                settings.orderMode, state.cachedOrder, candidates, library, state.lastShownHash, excluded, random
+            ) ?: return false
+            val entry = snapshot.aliasesByIdentity[pick.hash]?.firstOrNull { it.key !in damagedKeys }
+            val frame = entry?.let(::loadVerified)
+            if (entry == null || frame == null) {
+                excluded += pick.hash
+                return@repeat
             }
+            val attribution = Attribution.of(entry)
+            mainHandler.post {
+                view.show(frame, attribution) { commitDisplay(gen, pick.hash, library, pick.next) }
+            }
+            return true
         }
         return false
+    }
+
+    /** Records a display only after its frame reached the screen, and only for the session that chose it. */
+    private fun commitDisplay(gen: Int, hash: String, library: Set<String>, next: CachedOrder?) {
+        if (gen != generation) return
+        val now = System.currentTimeMillis()
+        LibraryStorage.post {
+            val committed = userState.commitDisplay(hash, now, library) { state ->
+                if (next == null) state else state.copy(cachedOrder = next)
+            }
+            if (!committed) Log.w(TAG, "Unable to record that a picture was shown")
+        }
     }
 
     /** Pictures that can be shown now: one per distinct picture, excluding any found damaged this session. */

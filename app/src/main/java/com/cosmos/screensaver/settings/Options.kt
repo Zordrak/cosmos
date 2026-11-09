@@ -25,6 +25,21 @@ internal enum class DisplayMode {
 
 internal enum class CaptionMode { SUBTLE, DETAILED, OFF }
 
+/** How the next picture is chosen. */
+internal enum class OrderMode {
+    /** Recency-aware: varies pictures, favourites and "More" sources recur sooner, new pictures arrive soon. */
+    FAIR,
+
+    /** Independent uniform choice; only an immediate repeat is avoided. */
+    RANDOM,
+
+    /** The same fixed order every time (source, then title). */
+    SEQUENTIAL
+}
+
+/** A relative per-picture weight for a source; applies to [OrderMode.FAIR] only. */
+internal enum class SourceWeight { LESS, NORMAL, MORE }
+
 internal enum class LicenceMode {
     /** Any publicly available image from an enabled source. */
     ANY_AVAILABLE,

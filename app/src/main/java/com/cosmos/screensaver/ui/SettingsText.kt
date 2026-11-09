@@ -3,6 +3,7 @@ package com.cosmos.screensaver.ui
 import android.content.Context
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.settings.CaptionMode
+import com.cosmos.screensaver.settings.OrderMode
 import com.cosmos.screensaver.settings.CollectionPreset
 import com.cosmos.screensaver.settings.DisplayMode
 import com.cosmos.screensaver.settings.QualityPreference
@@ -71,6 +72,22 @@ internal class SettingsText(private val context: Context) : SummaryLabels {
             DisplayMode.STRETCH -> R.string.fit_stretch_summary
             DisplayMode.AUTO -> R.string.fit_auto_summary
             DisplayMode.ORIGINAL -> R.string.fit_original_summary
+        }
+    )
+
+    fun orderMode(mode: OrderMode) = s(
+        when (mode) {
+            OrderMode.FAIR -> R.string.order_fair
+            OrderMode.RANDOM -> R.string.order_random
+            OrderMode.SEQUENTIAL -> R.string.order_sequential
+        }
+    )
+
+    fun orderModeSummary(mode: OrderMode) = s(
+        when (mode) {
+            OrderMode.FAIR -> R.string.order_fair_summary
+            OrderMode.RANDOM -> R.string.order_random_summary
+            OrderMode.SEQUENTIAL -> R.string.order_sequential_summary
         }
     )
 

@@ -98,6 +98,13 @@
     <string name="slideshow_left_body">Changes apply straight away. Choose See it full screen to check them on the whole TV.</string>
     <string name="row_interval">Time per picture</string>
     <string name="row_interval_summary">How long each picture stays on screen.</string>
+    <string name="row_order">Order</string>
+    <string name="order_fair">Fair mix</string>
+    <string name="order_fair_summary">Varies pictures fairly. Favourites appear more often and new pictures appear soon.</string>
+    <string name="order_random">Random</string>
+    <string name="order_random_summary">Pure chance. A picture can come back soon, but never twice in a row.</string>
+    <string name="order_sequential">In order</string>
+    <string name="order_sequential_summary">The same order every time: by source, then picture title.</string>
     <string name="row_fit">Picture fit</string>
     <string name="row_credits">Credits</string>
     <string name="row_fullscreen">See it full screen</string>
@@ -149,7 +156,7 @@
     <string name="row_reset">Reset viewing settings</string>
     <string name="row_reset_summary">Puts what to show and how it is shown back to the defaults.</string>
     <string name="reset_confirm_title">Reset viewing settings?</string>
-    <string name="reset_confirm_message">This puts the collection, sources, picture quality, free-to-reuse choice, time per picture, picture fit, credits and Play without saving back to their defaults. Your saved pictures, favourites, blocked pictures, space limit, download setting and TV start time are not changed.</string>
+    <string name="reset_confirm_message">This puts the collection, sources, picture quality, free-to-reuse choice, time per picture, picture order, picture fit, credits and Play without saving back to their defaults. Your saved pictures, favourites, blocked pictures, space limit, download setting and TV start time are not changed.</string>
     <string name="reset_confirm_button">Reset</string>
     <string name="row_about">About Cosmos</string>
     <string name="row_about_summary">Version, privacy and where pictures come from.</string>
