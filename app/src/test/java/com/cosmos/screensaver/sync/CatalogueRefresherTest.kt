@@ -403,32 +403,35 @@ class CatalogueRefresherTest {
     }
 
     @Test
-    fun enforcesTheSpaceBudgetKeepingTheNewestImages() {
+    fun fillsUpToTheBudgetInOnePassThenReplacesOnlyWhatHasBeenSeen() {
         val mib = 1024L * 1024
         listOf("heic9901a", "heic9902a", "heic9903a").forEach { id ->
             publish(hubble, id)
             fetcher.sizes[hubble.renditionUrl(Rendition.PUBLICATION, id)] = 40 * mib
         }
-        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
 
-        repeat(3) {
-            now += 1000
-            refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
-        }
+        refresher(selection = personal, budgetFor = { 100 * mib }).refresh()
+        assertEquals(2, store.load().entries.size)
+        now += 1000
+        assertEquals(0, refresher(selection = personal, budgetFor = { 100 * mib }).refresh().admitted)
+
+        watchAll()
+        val result = refresher(selection = personal, budgetFor = { 100 * mib }).refresh()
 
         val entries = store.load().entries
+        assertEquals(1, result.admitted)
         assertEquals(2, entries.size)
         assertEquals(2, store.imagesDirectory.list()!!.size)
-        assertTrue(entries.all { it.admittedAtEpochMillis > 1_800_000_001_000L })
+        assertEquals(setOf("heic9901a", "heic9902a", "heic9903a"), savedKeys() + store.load().rejections.keys.map { it.substringAfter(':') })
     }
 
     @Test
-    fun capsAdmissionsPerRefresh() {
+    fun savesEverythingAvailableInOnePass() {
         (1..9).forEach { publish(hubble, "heic990${it}a") }
 
-        val result = refresher(limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 3)).refresh()
+        val result = refresher().refresh()
 
-        assertEquals(3, result.admitted)
+        assertEquals(9, result.admitted)
     }
 
     @Test
@@ -617,11 +620,10 @@ class CatalogueRefresherTest {
         val mib = 1024L * 1024
         (1..4).forEach { id -> publish(hubble, "heic990${id}a") }
         (1..4).forEach { id -> fetcher.sizes[hubble.renditionUrl(Rendition.PUBLICATION, "heic990${id}a")] = 40 * mib }
-        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
 
         repeat(4) {
-            now += 1000
-            refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+            watchAll()
+            refresher(selection = personal, budgetFor = { 100 * mib }).refresh()
         }
 
         val entries = store.load().entries
@@ -643,24 +645,38 @@ class CatalogueRefresherTest {
     }
 
     @Test
-    fun capsRotationWhenTheLibraryIsFull() {
+    fun aFullLibraryNeverReplacesAPictureNotYetSeen() {
         val mib = 1024L * 1024
         (1..6).forEach { id ->
             publish(hubble, "heic990${id}a")
             fetcher.sizes[hubble.renditionUrl(Rendition.PUBLICATION, "heic990${id}a")] = 40 * mib
         }
-        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 8, maxAdmissionsWhenFull = 1)
-        refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
-        assertEquals(2, store.load().entries.size)
+        refresher(selection = personal, budgetFor = { 90 * mib }).refresh()
+        val first = store.load().entries
+        assertEquals(2, first.size)
+        now += 1000
+        val seen = first.first()
+        userState.commitDisplay(seen.sha256, now, first.map { it.sha256 }.toSet())
         now += 1000
 
-        val result = refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
+        val result = refresher(selection = personal, budgetFor = { 90 * mib }).refresh()
 
         assertEquals(1, result.admitted)
+        assertTrue(result.space.userLimitFull)
         assertEquals(2, store.load().entries.size)
+        assertFalse(seen.providerId in savedKeys())
+        assertTrue(first.last().providerId in savedKeys())
     }
 
     private val mib = 1024L * 1024
+
+    /** Every saved picture has been shown once, after it was saved. */
+    private fun watchAll() {
+        now += 1000
+        val hashes = store.load().entries.map { it.sha256 }.toSet()
+        hashes.forEach { userState.commitDisplay(it, now, hashes) }
+        now += 1000
+    }
 
     private fun savedKeys() = store.load().entries.map { it.providerId }.toSet()
 
@@ -696,9 +712,8 @@ class CatalogueRefresherTest {
         publish(hubble, "heic9903a")
         sizeOf(hubble, "heic9903a", 40 * mib)
         now += 1000
-        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
 
-        refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+        refresher(selection = personal, budgetFor = { 100 * mib }).refresh()
 
         assertEquals(setOf("heic9901a", "heic9902a"), savedKeys())
     }
@@ -706,18 +721,16 @@ class CatalogueRefresherTest {
     @Test
     fun aFullLibraryPrefersNewPicturesToRetiredOnes() {
         listOf("heic9901a", "heic9902a", "heic9903a").forEach { publish(hubble, it); sizeOf(hubble, it, 40 * mib) }
-        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
-        repeat(3) {
-            now += 1000
-            refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
-        }
+        refresher(selection = personal, budgetFor = { 90 * mib }).refresh()
+        watchAll()
+        refresher(selection = personal, budgetFor = { 90 * mib }).refresh()
         assertEquals(2, store.load().entries.size)
         val retiredId = (setOf("heic9901a", "heic9902a", "heic9903a") - savedKeys()).single()
         publish(hubble, "heic9904a")
         sizeOf(hubble, "heic9904a", 40 * mib)
-        now += 1000
+        watchAll()
 
-        refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
+        refresher(selection = personal, budgetFor = { 90 * mib }).refresh()
 
         assertTrue("heic9904a" in savedKeys())
         assertFalse(retiredId in savedKeys())
@@ -726,12 +739,16 @@ class CatalogueRefresherTest {
     @Test
     fun noPictureIsEvictedAndReturnedWithinOnePass() {
         (1..6).forEach { publish(hubble, "heic990${it}a"); sizeOf(hubble, "heic990${it}a", 40 * mib) }
-        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 20, maxLeadsPerSource = 20)
+        refresher(selection = personal, budgetFor = { 90 * mib }).refresh()
+        val first = savedKeys()
+        watchAll()
+        fetcher.requests.clear()
 
-        refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
+        refresher(selection = personal, budgetFor = { 90 * mib }).refresh()
 
-        // Six pictures, two fit: each was admitted once at most, never re-fetched after eviction.
-        assertEquals(6, fetcher.requests.count { it.contains("publicationjpg") })
+        assertEquals(2, savedKeys().size)
+        assertTrue(savedKeys().none { it in first })
+        assertTrue(first.none { id -> fetcher.requests.any { it.contains(id) } })
     }
 
     private fun sizeOf(site: DjangoplicitySite, id: String, bytes: Long) {
@@ -742,9 +759,8 @@ class CatalogueRefresherTest {
     fun thereIsNoCapOnTheNumberOfSavedPictures() {
         val ids = (1..160).map { "heic9%03da".format(it) }
         ids.forEach { publish(hubble, it) }
-        val limits = CatalogueRefresher.Limits(maxLeadsPerSource = 200, maxAdmissionsPerSource = 200)
 
-        refresher(limits = limits).refresh()
+        refresher().refresh()
 
         assertEquals(160, store.load().entries.size)
     }
@@ -755,15 +771,11 @@ class CatalogueRefresherTest {
             publish(hubble, "heic990${id}a")
             sizeOf(hubble, "heic990${id}a", 40 * mib)
         }
-        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
-        repeat(2) {
-            now += 1000
-            refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
-        }
+        refresher(selection = personal, budgetFor = { 100 * mib }).refresh()
         store.load().entries.forEach { userState.setFavourite(it.sha256, true) }
-        now += 1000
+        watchAll()
 
-        val result = refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+        val result = refresher(selection = personal, budgetFor = { 100 * mib }).refresh()
 
         assertTrue(result.space.favouritesPreventSaving)
         assertFalse(result.space.devicePressure)
@@ -789,7 +801,7 @@ class CatalogueRefresherTest {
     fun anUnknownMeasurementDownloadsAndDeletesNothing() {
         publish(hubble, "heic9901a")
         publish(hubble, "heic9902a")
-        refresher(limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)).refresh()
+        refresher().refresh()
         val before = store.load().entries
         fetcher.requests.clear()
         now += 1000
@@ -825,26 +837,43 @@ class CatalogueRefresherTest {
     }
 
     @Test
-    fun aFullLibraryGivesEverySourceATurnAsTheStartIndexRotates() {
+    fun sourcesTakeTurnsSoEachGetsAFairShare() {
         (1..4).forEach { id ->
             publish(hubble, "heic990${id}a")
             sizeOf(hubble, "heic990${id}a", 40 * mib)
             publish(webb, "weic990${id}a")
             sizeOf(webb, "weic990${id}a", 40 * mib)
         }
-        val fill = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
-        refresher(selection = personal, limits = fill, budgetFor = { 90 * mib }).refresh()
-        assertEquals(2, store.load().entries.size)
-        val whenFull = CatalogueRefresher.Limits(maxAdmissionsPerSource = 8, maxAdmissionsWhenFull = 1)
 
-        val newest = mutableListOf<AssetProvider>()
-        listOf(0, 1).forEach { start ->
-            now += 1000
-            refresher(selection = personal, limits = whenFull, budgetFor = { 90 * mib }, startIndex = start).refresh()
-            newest += store.load().entries.maxByOrNull { it.admittedAtEpochMillis }!!.provider
+        refresher(selection = personal, budgetFor = { 170 * mib }).refresh()
+
+        val byProvider = store.load().entries.groupingBy { it.provider }.eachCount()
+        assertEquals(mapOf(AssetProvider.ESA_HUBBLE to 2, AssetProvider.ESA_WEBB to 2), byProvider)
+    }
+
+    @Test
+    fun aLongPassKeepsItsRejectionsAsItGoes() {
+        var resolved = 0
+        var savedPartWay = -1
+        val skipper = object : SourceAdapter {
+            override val provider = AssetProvider.NASA
+            override val label = "Skipper"
+            override fun discover(fetcher: Fetcher, random: Random) = Discovery(
+                (1..25).map { n ->
+                    Lead("s$n") {
+                        if (++resolved == 22) savedPartWay = store.load().rejections.size
+                        CandidateResult.Skip("UNSUITABLE_TYPE")
+                    }
+                },
+                emptyList(),
+                reached = true
+            )
         }
 
-        assertEquals(listOf(AssetProvider.ESA_HUBBLE, AssetProvider.ESA_WEBB), newest)
+        refresher(sites = emptySet(), extraAdapters = listOf(skipper)).refresh()
+
+        assertEquals(20, savedPartWay)
+        assertEquals(25, store.load().rejections.size)
     }
 
     @Test
@@ -975,14 +1004,13 @@ class CatalogueRefresherTest {
         val mib = 1024L * 1024
         (1..4).forEach { id -> publish(hubble, "heic990${id}a") }
         (1..4).forEach { id -> fetcher.sizes[hubble.renditionUrl(Rendition.PUBLICATION, "heic990${id}a")] = 40 * mib }
-        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
-        refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
-        val favourite = store.load().entries.single()
+        refresher(selection = personal, budgetFor = { 100 * mib }).refresh()
+        val favourite = store.load().entries.first()
         userState.setFavourite(favourite.sha256, true)
 
         repeat(4) {
-            now += 1000
-            refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+            watchAll()
+            refresher(selection = personal, budgetFor = { 100 * mib }).refresh()
         }
 
         assertTrue(store.load().entries.any { it.key == favourite.key })

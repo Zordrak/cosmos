@@ -19,7 +19,17 @@ import com.cosmos.screensaver.settings.SelectionSnapshot
  */
 internal object CacheTrimmer {
     /** One unique picture: all its source aliases share one file and one identity. */
-    data class Group(val identity: String, val bytes: Long, val admittedAt: Long, val inView: Boolean)
+    data class Group(
+        val identity: String,
+        val bytes: Long,
+        val admittedAt: Long,
+        val inView: Boolean,
+        val provider: String = "",
+        val lastShownAt: Long = 0L
+    ) {
+        /** Shown at least once since it was (last) saved. */
+        val seen: Boolean get() = lastShownAt > 0L && lastShownAt >= admittedAt
+    }
 
     data class Result(
         val removedPictures: Int = 0,
@@ -43,10 +53,32 @@ internal object CacheTrimmer {
                     identity = identity,
                     bytes = aliases.distinctBy { it.fileName }.sumOf { it.byteCount },
                     admittedAt = aliases.minOf { it.admittedAtEpochMillis },
-                    inView = identity in inView
+                    inView = identity in inView,
+                    provider = aliases.first().provider.name,
+                    lastShownAt = state.stats[identity]?.lastShownAtEpochMillis ?: 0L
                 )
             }
             .sortedWith(compareBy({ it.inView }, { it.admittedAt }, { it.identity }))
+    }
+
+    /**
+     * The next picture to give up its place to a new one, or null when none may. Pictures out of
+     * view go first (oldest first). In view, only pictures already seen since they were saved may
+     * go, taken from the source holding the most in-view pictures (so the library drifts towards a
+     * fair share), least recently shown first.
+     */
+    fun nextReplaceable(candidates: List<Group>, entries: List<CatalogueEntry>, inView: Set<String>): Group? {
+        candidates.firstOrNull { !it.inView }?.let { return it }
+        val seen = candidates.filter { it.inView && it.seen }
+        if (seen.isEmpty()) return null
+        val shares = entries.filter { SelectionSnapshot.identity(it) in inView }
+            .groupBy { it.provider.name }
+            .mapValues { (_, aliases) -> aliases.map(SelectionSnapshot::identity).distinct().size }
+        return seen.sortedWith(
+            compareByDescending<Group> { shares[it.provider] ?: 0 }
+                .thenBy { it.lastShownAt }
+                .thenBy { it.identity }
+        ).first()
     }
 
     /** Bytes of pictures that can never be removed here (favourites), each file counted once. */
@@ -55,7 +87,8 @@ internal object CacheTrimmer {
 
     /**
      * Removes candidates one at a time, re-reading the live library each time, until [fits] accepts
-     * the bytes now saved. Stops without touching anything when the library cannot be read.
+     * the bytes now saved. Stops without touching anything when the library cannot be read. When
+     * [replacing], the removal makes way for a new picture and follows [nextReplaceable].
      */
     fun evictUntil(
         store: CatalogueStore,
@@ -63,6 +96,7 @@ internal object CacheTrimmer {
         selection: ImageSelection,
         providers: Set<AssetProvider>,
         clock: () -> Long = System::currentTimeMillis,
+        replacing: Boolean = false,
         fits: (savedBytes: Long) -> Boolean
     ): Result {
         var removed = 0
@@ -80,9 +114,11 @@ internal object CacheTrimmer {
             }
             val inView = SelectionSnapshot.build(entries, selection, providers, state).eligibleIdentities
             val remaining = candidates(entries, state, inView).filter { it.identity !in skipped }
-            val next = remaining.firstOrNull()
+            val next = (if (replacing) nextReplaceable(remaining, entries, inView) else remaining.firstOrNull())
                 ?: return Result(
-                    removed, removedBytes, protectedRemain = protectedBytes(entries, state) > 0L, failures = failures
+                    removed, removedBytes,
+                    protectedRemain = remaining.isEmpty() && protectedBytes(entries, state) > 0L,
+                    failures = failures
                 )
             when (LibraryMaintenance.evict(store, userState, next.identity, clock())) {
                 0 -> {

@@ -18,15 +18,19 @@ internal class DjangoplicityAdapter(
     override fun discover(fetcher: Fetcher, random: Random): Discovery =
         discover(fetcher, random, LeadFilter.EVERYTHING_FRESH)
 
+    /** The headline listings' pictures, read once per adapter (one refresh pass) and replayed after. */
+    private var headline: List<String>? = null
+
     /**
      * The headline listings come first. The archive's category pages are then walked in rotation
      * a page at a time, skipping every picture [filter] has already dealt with, so the crawl always
      * continues from the first thing not yet accounted for rather than from a remembered position.
-     * Pages already read are replayed from [listings]; only a few new ones are fetched per call.
+     * Pages already read are replayed from [listings]; only a few new ones are fetched per call, so
+     * a pass calls this again whenever it has worked through what the last call returned.
      */
     override fun discover(fetcher: Fetcher, random: Random, filter: LeadFilter): Discovery {
         val errors = mutableListOf<String>()
-        var reached = false
+        var reached = headline != null
         val seen = mutableSetOf<String>()
         val fresh = mutableListOf<String>()
         val retired = mutableListOf<String>()
@@ -38,14 +42,20 @@ internal class DjangoplicityAdapter(
                 LeadStatus.DONE -> Unit
             }
         }
-        for (url in site.discoveryUrls) {
-            try {
-                DjangoplicityParser.discoveredIds(fetcher.fetchText(url), site).forEach(::offer)
-                reached = true
-            } catch (error: IOException) {
-                errors += "${site.label} listing unavailable (${error.describe()})"
+        val known = headline ?: run {
+            val ids = mutableListOf<String>()
+            for (url in site.discoveryUrls) {
+                try {
+                    ids += DjangoplicityParser.discoveredIds(fetcher.fetchText(url), site)
+                    reached = true
+                } catch (error: IOException) {
+                    errors += "${site.label} listing unavailable (${error.describe()})"
+                }
             }
+            if (reached) headline = ids
+            ids
         }
+        known.forEach(::offer)
         if (reached) crawlCategories(fetcher, filter, ::offer) { fresh.size }
         listings.flush()
         val ids = retired + fresh

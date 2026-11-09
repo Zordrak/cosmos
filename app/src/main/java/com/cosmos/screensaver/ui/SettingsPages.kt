@@ -47,7 +47,7 @@ internal interface PageEnv {
     fun openPage(page: Page)
 
     /** Opens the saved pictures browser, or the list of blocked pictures when [blocked]. */
-    fun openLibrary(blocked: Boolean)
+    fun openLibrary()
 
     /** A viewing choice changed; [refresh] also asks the sources for pictures matching it. */
     fun viewingChanged(refresh: Boolean)
@@ -464,7 +464,7 @@ internal class SettingsPages(private val env: PageEnv) {
         ui.action(
             "browse", s(R.string.row_browse), { s(R.string.row_browse_summary) },
             value = { env.snapshot.takeIf { it.loaded && !it.unreadable }?.pictures?.toString() }
-        ) { env.openLibrary(blocked = false) }
+        ) { env.openLibrary() }
         ui.action(
             "space", s(R.string.row_space), { s(R.string.row_space_summary) },
             value = { SpacePage.limitLabel(activity, settings.cacheLimitBytes) }
@@ -518,6 +518,16 @@ internal class SettingsPages(private val env: PageEnv) {
             "tidy", s(R.string.row_tidy), { s(R.string.row_tidy_summary) },
             enabledReason = { bulk.reason(BulkActions.Action.TIDY) }
         ) { bulk.request(BulkActions.Action.TIDY) }
+        ui.switch(
+            "stream_only", s(R.string.row_stream_only),
+            summary = { s(if (it) R.string.stream_only_on_summary else R.string.stream_only_off_summary) },
+            get = { settings.streamOnly },
+            set = { settings.streamOnly = it }
+        )
+        ui.action(
+            "clear", s(R.string.row_clear), { s(R.string.row_clear_summary) },
+            enabledReason = { bulk.reason(BulkActions.Action.CLEAR) }
+        ) { bulk.request(BulkActions.Action.CLEAR) }
         return PageContent(ui.rows) {
             updateStatus()
             val snap = env.snapshot
@@ -607,17 +617,6 @@ internal class SettingsPages(private val env: PageEnv) {
     private fun more(left: LinearLayout): PageContent {
         val ui = SettingsUi(activity)
         subPageLeft(ui, left, R.string.home_more, R.string.more_left_body)
-        UndoNotice.row(ui, env)
-        ui.switch(
-            "stream_only", s(R.string.row_stream_only),
-            summary = { s(if (it) R.string.stream_only_on_summary else R.string.stream_only_off_summary) },
-            get = { settings.streamOnly },
-            set = { settings.streamOnly = it }
-        )
-        ui.action(
-            "clear", s(R.string.row_clear), { s(R.string.row_clear_summary) },
-            enabledReason = { bulk.reason(BulkActions.Action.CLEAR) }
-        ) { bulk.request(BulkActions.Action.CLEAR) }
         ui.action("reset", s(R.string.row_reset), { s(R.string.row_reset_summary) }) {
             ConfirmDialog.show(
                 activity, s(R.string.reset_confirm_title), s(R.string.reset_confirm_message), s(R.string.reset_confirm_button)
@@ -626,12 +625,8 @@ internal class SettingsPages(private val env: PageEnv) {
                 env.viewingChanged(refresh = true)
             }
         }
-        ui.action(
-            "blocked", s(R.string.row_blocked), { s(R.string.row_blocked_summary) },
-            value = { env.snapshot.takeIf { it.loaded && !it.unreadable }?.blockedCount?.toString() }
-        ) { env.openLibrary(blocked = true) }
         ui.action("about", s(R.string.row_about), { s(R.string.row_about_summary) }) { env.openPage(Page.ABOUT) }
-        return PageContent(ui.rows) { bulk.onSnapshot(ui) }
+        return PageContent(ui.rows)
     }
 
     private fun about(left: LinearLayout): PageContent {

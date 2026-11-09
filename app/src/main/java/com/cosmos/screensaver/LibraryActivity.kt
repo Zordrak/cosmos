@@ -6,13 +6,13 @@ import android.content.Intent
 import android.os.Bundle
 import com.cosmos.screensaver.ui.LibraryScreen
 
-/** The saved pictures browser, or the blocked pictures list when [EXTRA_BLOCKED] is set. Not exported. */
+/** The saved pictures browser, with All, Favourites and Blocked tabs. Not exported. */
 class LibraryActivity : Activity() {
     private lateinit var screen: LibraryScreen
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        screen = LibraryScreen(this, blockedMode = intent.getBooleanExtra(EXTRA_BLOCKED, false))
+        screen = LibraryScreen(this)
         screen.onCreate(savedInstanceState)
     }
 
@@ -37,9 +37,6 @@ class LibraryActivity : Activity() {
     }
 
     internal companion object {
-        const val EXTRA_BLOCKED = "blocked"
-
-        fun intent(context: Context, blocked: Boolean): Intent =
-            Intent(context, LibraryActivity::class.java).putExtra(EXTRA_BLOCKED, blocked)
+        fun intent(context: Context): Intent = Intent(context, LibraryActivity::class.java)
     }
 }

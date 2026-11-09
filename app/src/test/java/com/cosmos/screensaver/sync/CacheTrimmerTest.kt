@@ -57,6 +57,37 @@ class CacheTrimmerTest {
     private fun keys() = store.load().entries.map { it.key }.toSet()
 
     @Test
+    fun replacingTakesOnlySeenPicturesFromTheSourceHoldingTheMost() {
+        val h1 = save("h1", sha = "a".repeat(64))
+        val h2 = save("h2", sha = "b".repeat(64))
+        val h3 = save("h3", sha = "c".repeat(64))
+        val w1 = save("w1", sha = "d".repeat(64), provider = AssetProvider.ESA_WEBB)
+        val hashes = setOf(h1, h2, h3, w1).map { it.sha256 }.toSet()
+        // h3 is not shown; w1 was shown longest ago; h2 before h1.
+        userState.commitDisplay(w1.sha256, 2_000, hashes)
+        userState.commitDisplay(h2.sha256, 3_000, hashes)
+        userState.commitDisplay(h1.sha256, 4_000, hashes)
+        val fits = { saved: Long -> saved <= 200 }
+
+        val result = CacheTrimmer.evictUntil(store, userState, selection, all, { 5_000L }, replacing = true, fits = fits)
+
+        assertTrue(result.satisfied)
+        assertEquals(setOf(h3.key, w1.key), keys())
+    }
+
+    @Test
+    fun replacingStopsRatherThanTakeAPictureNotYetSeen() {
+        save("h1", sha = "a".repeat(64))
+        save("h2", sha = "b".repeat(64))
+
+        val result = CacheTrimmer.evictUntil(store, userState, selection, all, { 5_000L }, replacing = true) { it <= 100 }
+
+        assertFalse(result.satisfied)
+        assertFalse(result.protectedRemain)
+        assertEquals(2, keys().size)
+    }
+
+    @Test
     fun removesTheOldestFirstUntilTheSavedBytesFit() {
         val old = save("a", admittedAt = 1)
         val mid = save("b", admittedAt = 2)

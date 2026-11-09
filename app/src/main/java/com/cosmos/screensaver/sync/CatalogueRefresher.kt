@@ -28,6 +28,7 @@ import com.cosmos.screensaver.source.DjangoplicityParser
 import com.cosmos.screensaver.source.DjangoplicitySite
 import com.cosmos.screensaver.source.Fetcher
 import com.cosmos.screensaver.source.ImageHeader
+import com.cosmos.screensaver.source.Lead
 import com.cosmos.screensaver.source.LeadFilter
 import com.cosmos.screensaver.source.LeadStatus
 import com.cosmos.screensaver.source.RenditionOption
@@ -113,10 +114,13 @@ internal class CatalogueRefresher(
     private val allowSaving: () -> Boolean = { true }
 ) {
     data class Limits(
-        val maxLeadsPerSource: Int = 60,
-        val maxAdmissionsPerSource: Int = 8,
-        /** Once the library is full, each refresh swaps in at most this many new images. */
-        val maxAdmissionsWhenFull: Int = 15,
+        /**
+         * A source whose leads keep failing to qualify this many times in a row is left alone for
+         * the rest of the pass: it has nothing more worth saving right now. Not a cap on saving.
+         */
+        val maxConsecutiveMisses: Int = 150,
+        /** A source whose downloads keep failing (unreachable, for instance) is left alone for the pass. */
+        val maxConsecutiveFailures: Int = 6,
         val minBudgetBytes: Long = 50L * 1024 * 1024,
         val downloadReserveBytes: Long = 12L * 1024 * 1024,
         /** Free space that must remain after a download is written. */
@@ -168,6 +172,19 @@ internal class CatalogueRefresher(
     }
 
     private val providers = adapters.map { it.provider }.toSet()
+
+    /** One source's place in a pass: its queue of untried leads and why it may have stopped. */
+    private class SourceTurn(val adapter: SourceAdapter) {
+        private val keyPrefix = "${adapter.provider.name}:"
+        val queue = ArrayDeque<Lead>()
+        var hasFresh = false
+        var discoveries = 0
+        var misses = 0
+        var failures = 0
+        var finished = false
+
+        fun keyOf(id: String) = "$keyPrefix$id"
+    }
     private val policies = mutableMapOf<DjangoplicitySite, PolicyState>()
     private var withdrawnCount = 0
 
@@ -210,6 +227,7 @@ internal class CatalogueRefresher(
             .toMutableMap()
         val droppedRejectionKeys = initial.rejections.keys - rejections.keys
         val newRejections = mutableMapOf<String, RejectionRecord>()
+        var flushedRejections = 0
         val errors = mutableListOf<String>()
         var admitted = 0
         var rejected = 0
@@ -230,8 +248,11 @@ internal class CatalogueRefresher(
             stoppedByPolicy = true
         } else {
             recheckSavedPictures(newRejections, rejections)
-            val full = usedAtStart + limits.downloadReserveBytes > budgetAtStart.budgetBytes
-            var runAdmissions = 0
+            // Every lead this pass has dealt with (resolved, or deliberately passed over), so a source's
+            // frontier always moves on and a pass always ends. What was already showable when the pass
+            // began counts as dealt with, so a picture removed meanwhile is not fetched straight back.
+            val tried = snapshot().eligibleKeys.toMutableSet()
+            val turns = mutableListOf<SourceTurn>()
             sources@ for (adapter in rotated(adapters.sortedBy { it.provider.ordinal })) {
                 if (!allowSaving()) {
                     stoppedByPolicy = true
@@ -252,18 +273,27 @@ internal class CatalogueRefresher(
                         is PolicyState.Current -> Unit
                     }
                 }
+                turns += SourceTurn(adapter)
+            }
+
+            /** Finds the source's next untried leads: pictures removed for room first, then new ones. */
+            fun replenish(turn: SourceTurn): Boolean {
+                val adapter = turn.adapter
                 run?.discovering(adapter.label)
-                // Pictures evicted earlier in this very pass must not look new to the sources still to come.
+                // Pictures evicted earlier in this very pass must not look new.
                 store.load().rejections.forEach { (key, record) ->
                     if (record.reason == LibraryMaintenance.EVICTED && key !in rejections) rejections[key] = record
                 }
                 val satisfied = snapshot().eligibleKeys
                 val state = userState.load()
-                val keyPrefix = "${adapter.provider.name}:"
+                // Worked out once per discovery: a listing can name thousands of pictures.
+                val required = requiredResolution()
                 val leadFilter = object : LeadFilter {
                     override fun status(id: String): LeadStatus {
-                        val key = "$keyPrefix$id"
-                        if (key in satisfied || state.isBlocked(key, null) || isStashed(key, "")) return LeadStatus.DONE
+                        val key = turn.keyOf(id)
+                        if (key in tried || key in satisfied || state.isBlocked(key, null) || isStashed(key, "")) {
+                            return LeadStatus.DONE
+                        }
                         return when (rejections[key]?.reason) {
                             null -> LeadStatus.FRESH
                             LibraryMaintenance.EVICTED -> LeadStatus.RETIRED
@@ -271,40 +301,51 @@ internal class CatalogueRefresher(
                         }
                     }
 
-                    override fun fits(width: Int, height: Int) = requiredResolution()?.accepts(width, height) ?: true
+                    override fun fits(width: Int, height: Int) = required?.accepts(width, height) ?: true
                 }
                 val discovery = adapter.discover(fetcher, random, leadFilter)
-                errors += discovery.errors
-                discovery.errors.lastOrNull()?.let { run?.error(ProgressErrorKind.DISCOVERY, it, adapter.label) }
+                if (turn.discoveries++ == 0) {
+                    errors += discovery.errors
+                    discovery.errors.lastOrNull()?.let { run?.error(ProgressErrorKind.DISCOVERY, it, adapter.label) }
+                }
                 if (discovery.reached) anySourceReached = true
-
-                // Pictures removed earlier to make room come back first, but only into spare room.
                 val (retiredLeads, freshLeads) = discovery.leads
                     .filter { lead -> leadFilter.status(lead.id) != LeadStatus.DONE }
-                    .partition { rejections["$keyPrefix${it.id}"]?.reason == LibraryMaintenance.EVICTED }
-                val leads = retiredLeads.sortedBy { rejections.getValue("$keyPrefix${it.id}").atEpochMillis } +
-                    freshLeads.shuffled(random)
+                    .distinctBy { it.id }
+                    .partition { rejections[turn.keyOf(it.id)]?.reason == LibraryMaintenance.EVICTED }
+                turn.hasFresh = freshLeads.isNotEmpty()
+                turn.queue.addAll(retiredLeads.sortedBy { rejections.getValue(turn.keyOf(it.id)).atEpochMillis })
+                turn.queue.addAll(freshLeads.shuffled(random))
+                return turn.queue.isNotEmpty()
+            }
 
-                var resolved = 0
-                var sourceAdmissions = 0
+            /**
+             * One source's turn: resolve its leads until one picture is saved. The source is finished
+             * when it has nothing new left, or keeps failing, so the others carry on without it.
+             */
+            fun takeTurn(turn: SourceTurn): Boolean {
+                val adapter = turn.adapter
                 var spareRoom: Boolean? = null
-                for (lead in leads) {
-                    if (resolved >= limits.maxLeadsPerSource || sourceAdmissions >= limits.maxAdmissionsPerSource) break
-                    if (full && runAdmissions >= limits.maxAdmissionsWhenFull) break@sources
-                    if (holdAdmissions()) break@sources
+                while (true) {
+                    if (holdAdmissions()) return false
                     if (!allowSaving()) {
                         stoppedByPolicy = true
-                        break@sources
+                        return false
                     }
-                    val key = "$keyPrefix${lead.id}"
+                    if (turn.queue.isEmpty() && !replenish(turn)) {
+                        turn.finished = true
+                        return true
+                    }
+                    val lead = turn.queue.removeFirst()
+                    val key = turn.keyOf(lead.id)
+                    if (!tried.add(key)) continue
                     if (rejections[key]?.reason == LibraryMaintenance.EVICTED) {
                         // Never bring back what this same pass removed; otherwise only into spare room,
-                        // or by rotation once there is nothing new left to try.
+                        // or by rotation once this source has nothing new left to try.
                         if (rejections.getValue(key).atEpochMillis >= startedAt) continue
                         if (spareRoom == null) spareRoom = hasSpareRoom()
-                        if (spareRoom != true && freshLeads.isNotEmpty()) continue
+                        if (spareRoom != true && turn.hasFresh) continue
                     }
-                    resolved++
                     spareRoom = null
                     run?.discovering(adapter.label)
                     val outcome = try {
@@ -322,29 +363,54 @@ internal class CatalogueRefresher(
                     when (outcome) {
                         is Outcome.Admitted -> {
                             admitted++
-                            sourceAdmissions++
-                            runAdmissions++
+                            turn.misses = 0
+                            turn.failures = 0
                             run?.admitted()
+                            return true
                         }
                         is Outcome.Rejected -> {
                             val record = RejectionRecord(outcome.reason, clock())
                             rejections[key] = record
                             newRejections[key] = record
                             rejected++
+                            turn.failures = 0
                             run?.skipped()
+                            // A long pass keeps its decisions as it goes, so being stopped part-way
+                            // does not mean fetching the same unsuitable pages again next time.
+                            if (newRejections.size - flushedRejections >= REJECTION_FLUSH_EVERY) {
+                                store.update { it.copy(rejections = it.rejections + newRejections) }
+                                flushedRejections = newRejections.size
+                            }
                         }
                         is Outcome.Failed -> {
                             errors += "${lead.id}: ${outcome.reason}"
                             run?.error(ProgressErrorKind.DOWNLOAD, outcome.reason, adapter.label)
+                            if (++turn.failures >= limits.maxConsecutiveFailures) {
+                                turn.finished = true
+                                return true
+                            }
                         }
                         Outcome.Held -> Unit
                         is Outcome.NoSpace -> {
                             space = SpaceStatus.of(outcome.reason)
                             if (outcome.reason == NoRoomReason.UNREADABLE) errors += "saved pictures could not be read"
-                            break@sources
+                            return false
                         }
                         is Outcome.Stored -> error("admit() never returns Stored")
                     }
+                    if (++turn.misses >= limits.maxConsecutiveMisses) {
+                        turn.finished = true
+                        return true
+                    }
+                }
+            }
+
+            // The sources take turns a picture at a time, so each gets a fair share of the space,
+            // and the pass carries on until the library is full or every source has nothing new.
+            rounds@ while (!stoppedByPolicy && turns.any { !it.finished }) {
+                for (turn in turns) {
+                    if (turn.finished) continue
+                    if (!takeTurn(turn)) break@rounds
                 }
             }
         }
@@ -872,14 +938,16 @@ internal class CatalogueRefresher(
     }
 
     /**
-     * Evicts whole pictures, those that no longer qualify first and then the oldest, until
-     * [needBytes] more fit in the budget. Favourites are never evicted; when only favourites
-     * remain, or the free space cannot be measured, this says why instead of a generic "no space".
+     * Evicts whole pictures until [needBytes] more fit in the budget: first those the current view
+     * would not show, then, only from pictures already shown since they were saved, the least
+     * recently shown from whichever source holds the most. A picture not yet seen is never replaced
+     * by another, so how fast the library changes follows how much it is watched. Favourites are
+     * never evicted; when nothing may go, or the free space cannot be measured, this says why.
      * [onDiskBytes] is a downloaded file that is not in the catalogue yet, but already occupies space.
      */
     private fun makeRoom(needBytes: Long, onDiskBytes: Long = 0L): Room {
         var latest = CacheBudget.UNKNOWN
-        val result = CacheTrimmer.evictUntil(store, userState, selection, providers, clock) { saved ->
+        val result = CacheTrimmer.evictUntil(store, userState, selection, providers, clock, replacing = true) { saved ->
             val used = saved + onDiskBytes
             latest = budgetFor(used)
             // An unknown measurement stops eviction: never delete on a guess.
@@ -916,6 +984,7 @@ internal class CatalogueRefresher(
         const val EXCEEDS_MAX_DIMENSIONS = "EXCEEDS_MAX_DIMENSIONS"
         const val FAVOURITE_KEPT = "FAVOURITE_KEPT"
         private const val HEADER_BYTES = 32
+        private const val REJECTION_FLUSH_EVERY = 20
         private const val MAX_STREAM_PROBES = 12
 
         /** What the saved library was last refreshed for: the image rules and which sources are on. */

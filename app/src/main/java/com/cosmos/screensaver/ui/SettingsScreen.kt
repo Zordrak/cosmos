@@ -126,8 +126,8 @@ internal class SettingsScreen(override val activity: Activity, private val page:
         activity.startActivity(SettingsActivity.intent(activity, page))
     }
 
-    override fun openLibrary(blocked: Boolean) {
-        activity.startActivity(LibraryActivity.intent(activity, blocked))
+    override fun openLibrary() {
+        activity.startActivity(LibraryActivity.intent(activity))
     }
 
     override fun viewingChanged(refresh: Boolean) {

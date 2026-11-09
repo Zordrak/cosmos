@@ -42,15 +42,17 @@ import java.util.Date
 import java.util.concurrent.Executors
 
 /**
- * The saved pictures browser (and, in [blockedMode], the blocked pictures list). The list is on
- * the left; the preview, details and actions are on the right. The list is read on the storage
- * thread and published here; selection and every command use a picture's identity, never a list
- * position, so a list that changes underneath can never aim a command at the wrong picture.
+ * The saved pictures browser: one place for every picture-level action. Tabs at the top switch
+ * between all saved pictures, favourites and blocked pictures. The list is on the left; the
+ * preview, details and actions are on the right. The list is read on the storage thread and
+ * published here; selection and every command use a picture's identity, never a list position, so
+ * a list that changes underneath can never aim a command at the wrong picture.
  */
-internal class LibraryScreen(private val activity: Activity, private val blockedMode: Boolean) {
+internal class LibraryScreen(private val activity: Activity) {
+    enum class Filter { ALL, FAVOURITES, BLOCKED }
+
     private sealed class Item(val id: String) {
         class Picture(val row: LibraryRow) : Item(row.id)
-        class BlockedLink(val count: Int) : Item(LINK_ID)
         class Blocked(val record: BlockedRecord) : Item("b:" + record.id)
     }
 
@@ -85,6 +87,8 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
     )
 
     private var loaded: Loaded? = null
+    private var filter = Filter.ALL
+    private var focusListOnLoad = true
     private var items: List<Item> = emptyList()
     private var selectedId: String? = null
     private var requested = 0L
@@ -97,6 +101,7 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
     private var wasActive = false
 
     private lateinit var list: ListView
+    private lateinit var tabs: Map<Filter, TextView>
     private lateinit var summary: TextView
     private lateinit var previewFrame: FrameLayout
     private lateinit var previewImage: ImageView
@@ -119,8 +124,6 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
         override fun getCount() = items.size
         override fun getItem(position: Int): Any = items[position]
         override fun getItemId(position: Int) = position.toLong()
-        override fun getViewTypeCount() = 2
-        override fun getItemViewType(position: Int) = if (items[position] is Item.BlockedLink) 1 else 0
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
             bindRow(position, convertView)
     }
@@ -135,9 +138,11 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
 
     fun onCreate(savedInstanceState: Bundle?) {
         selectedId = savedInstanceState?.getString(STATE_SELECTED)
+        filter = savedInstanceState?.getString(STATE_FILTER)?.let { name -> Filter.entries.firstOrNull { it.name == name } } ?: Filter.ALL
         activity.setContentView(buildLayout())
         thumbs.onLoaded = { adapter.notifyDataSetChanged() }
         previews.onLoaded = { key -> if (key == currentPreviewKey()) showPreview() }
+        updateTabs()
         showSelection()
         list.requestFocus()
     }
@@ -145,7 +150,7 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
     fun onResume() {
         resumed = true
         reload()
-        if (!blockedMode) handler.post(statusPoller)
+        handler.post(statusPoller)
     }
 
     fun onPause() {
@@ -156,6 +161,7 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
 
     fun onSaveInstanceState(outState: Bundle) {
         selectedId?.let { outState.putString(STATE_SELECTED, it) }
+        outState.putString(STATE_FILTER, filter.name)
     }
 
     fun onDestroy() {
@@ -170,7 +176,7 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
     private fun buildLayout(): View {
         val header = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            addView(ui.text(activity.getString(if (blockedMode) R.string.library_title_blocked else R.string.library_title_saved), SettingsType.PAGE_TITLE, Color.WHITE, bold = true))
+            addView(ui.text(activity.getString(R.string.library_title_saved), SettingsType.PAGE_TITLE, Color.WHITE, bold = true))
             summary = ui.text("", SettingsType.SUMMARY, SettingsColors.SECONDARY).apply { setPadding(0, ui.dp(4), 0, 0) }
             addView(summary)
         }
@@ -200,15 +206,66 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
             addView(list, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.42f).apply { rightMargin = ui.dp(24) })
             addView(right, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.58f))
         }
+        val top = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.BOTTOM
+            addView(header, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(buildTabs())
+        }
 
         return LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(SettingsColors.BACKGROUND)
-            setPadding(ui.dp(56), ui.dp(40), ui.dp(40), ui.dp(32))
-            addView(header)
-            if (!blockedMode) addView(buildStatusPanel())
-            addView(columns, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = ui.dp(16) })
+            setPadding(ui.dp(56), ui.dp(32), ui.dp(40), ui.dp(28))
+            addView(top)
+            addView(buildStatusPanel())
+            addView(columns, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = ui.dp(12) })
         }
+    }
+
+    /** All, Favourites and Blocked. Moving onto a tab shows its pictures; Down returns to the list. */
+    private fun buildTabs(): View {
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        tabs = Filter.entries.associateWith { tab ->
+            button("", Color.WHITE) { list.requestFocus() }.also { view ->
+                view.nextFocusDownId = list.id
+                view.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) showFilter(tab) }
+                row.addView(view, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = ui.dp(12) })
+            }
+        }
+        return row
+    }
+
+    private fun showFilter(next: Filter) {
+        if (next == filter) return
+        filter = next
+        selectedId = null
+        updateTabs()
+        loaded?.let(::apply)
+    }
+
+    private fun updateTabs() {
+        if (!::tabs.isInitialized) return
+        val result = loaded
+        val counts = mapOf(
+            Filter.ALL to (result?.rows?.size ?: 0),
+            Filter.FAVOURITES to (result?.rows?.count { it.favourite } ?: 0),
+            Filter.BLOCKED to (result?.blocked?.size ?: 0)
+        )
+        tabs.forEach { (tab, view) ->
+            view.text = activity.getString(
+                when (tab) {
+                    Filter.ALL -> R.string.library_tab_all
+                    Filter.FAVOURITES -> R.string.library_tab_favourites
+                    Filter.BLOCKED -> R.string.library_tab_blocked
+                },
+                counts.getValue(tab)
+            )
+            view.setTextColor(if (tab == filter) SettingsColors.ACCENT else SettingsColors.SECONDARY)
+            view.paint.isUnderlineText = tab == filter
+            view.invalidate()
+        }
+        list.nextFocusUpId = tabs.getValue(filter).id
     }
 
     private fun buildStatusPanel(): View {
@@ -260,7 +317,6 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
             setBackgroundColor(SettingsColors.PANEL)
             addView(previewImage, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             addView(previewNote, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-            if (blockedMode) visibility = View.GONE
         }
 
         detailText = ui.text("", SettingsType.SUMMARY, SettingsColors.SECONDARY).apply {
@@ -294,8 +350,8 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
         return LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             addView(placeholder)
-            if (!blockedMode) addView(previewFrame, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(detailScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, if (blockedMode) 1f else 1.1f).apply { topMargin = ui.dp(12) })
+            addView(previewFrame, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(detailScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.1f).apply { topMargin = ui.dp(12) })
             addView(buttonRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = ui.dp(12) })
         }
     }
@@ -353,25 +409,33 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
                 bindThumbnail(thumb, item.row)
             }
             is Item.Blocked -> {
-                thumb.visibility = View.GONE
+                thumb.visibility = View.VISIBLE
                 title.text = item.record.title
                 subtitle.text = activity.getString(
                     R.string.library_blocked_subtitle,
                     item.record.sourceLabel,
                     dateFormat.format(Date(item.record.blockedAtEpochMillis))
                 )
-            }
-            is Item.BlockedLink -> {
-                thumb.visibility = View.GONE
-                title.text = activity.getString(R.string.library_blocked_link, item.count)
-                subtitle.text = ""
-                subtitle.visibility = View.GONE
+                bindBlockedThumbnail(thumb, item.record)
             }
         }
-        if (item !is Item.BlockedLink) subtitle.visibility = View.VISIBLE
         row.background = if (!listFocused && position == list.selectedItemPosition) dimmedSelection() else null
         return row
     }
+
+    private fun bindBlockedThumbnail(view: ImageView, record: BlockedRecord) {
+        val key = blockedKey(record) + ":t"
+        val cached = thumbs.cached(key)
+        if (cached != null) {
+            view.setImageBitmap(cached)
+            return
+        }
+        view.setImageDrawable(null)
+        val file = BlockedThumbnails.file(appContext, record.sha256) ?: return
+        thumbs.request(key) { if (file.isFile) decode(file, THUMB_EDGE) else null }
+    }
+
+    private fun blockedKey(record: BlockedRecord) = "b:${record.id}:${record.sha256}"
 
     private fun dimmedSelection() = GradientDrawable().apply {
         setColor(DIMMED_SELECTION)
@@ -436,20 +500,27 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
         } else {
             selectedId = null
         }
+        updateTabs()
         updateSummary(result)
         showSelection()
+        // An empty list cannot take focus, so a tab has it until the first pictures arrive.
+        if (focusListOnLoad && items.isNotEmpty()) {
+            focusListOnLoad = false
+            list.requestFocus()
+        }
     }
 
-    private fun buildItems(result: Loaded): List<Item> = when {
-        blockedMode -> result.blocked.map { Item.Blocked(it) }
-        else -> result.rows.map { Item.Picture(it) } +
-            (if (result.blocked.isNotEmpty()) listOf(Item.BlockedLink(result.blocked.size)) else emptyList())
+    private fun buildItems(result: Loaded): List<Item> = when (filter) {
+        Filter.ALL -> result.rows.map { Item.Picture(it) }
+        Filter.FAVOURITES -> result.rows.filter { it.favourite }.map { Item.Picture(it) }
+        Filter.BLOCKED -> result.blocked.map { Item.Blocked(it) }
     }
 
     private fun updateSummary(result: Loaded) {
-        summary.text = when {
-            blockedMode || result.unreadable -> ""
-            else -> activity.resources.getQuantityString(
+        summary.text = if (result.unreadable) {
+            ""
+        } else {
+            activity.resources.getQuantityString(
                 R.plurals.library_summary, result.rows.size, result.rows.size, ByteSizes.format(result.totalBytes)
             )
         }
@@ -464,14 +535,14 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
 
     private fun currentItem(): Item? = items.firstOrNull { it.id == selectedId }
 
-    private fun currentPreviewKey(): String? = (currentItem() as? Item.Picture)?.row?.imageKey?.plus(":p")
+    private fun currentPreviewKey(): String? = when (val item = currentItem()) {
+        is Item.Picture -> item.row.imageKey + ":p"
+        is Item.Blocked -> blockedKey(item.record) + ":p"
+        null -> null
+    }
 
     private fun activateItem(position: Int) {
-        when (items.getOrNull(position)) {
-            is Item.BlockedLink -> activity.startActivity(com.cosmos.screensaver.LibraryActivity.intent(activity, blocked = true))
-            is Item.Picture, is Item.Blocked -> firstVisibleButton()?.requestFocus()
-            null -> Unit
-        }
+        if (items.getOrNull(position) != null) firstVisibleButton()?.requestFocus()
     }
 
     private fun firstVisibleButton(): View? = listOf(favouriteButton, removeButton, blockButton, unblockButton)
@@ -487,10 +558,10 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
 
         previewImage.setImageDrawable(null)
         previewNote.visibility = View.GONE
-        val hasDetails = item is Item.Picture || item is Item.Blocked
+        val hasDetails = item != null
         detailScroll.visibility = if (hasDetails) View.VISIBLE else View.GONE
         buttonRow.visibility = if (hasDetails) View.VISIBLE else View.GONE
-        if (!blockedMode) previewFrame.visibility = if (item is Item.Picture) View.VISIBLE else View.GONE
+        previewFrame.visibility = if (hasDetails) View.VISIBLE else View.GONE
         favouriteButton.visibility = if (item is Item.Picture) View.VISIBLE else View.GONE
         removeButton.visibility = if (item is Item.Picture) View.VISIBLE else View.GONE
         blockButton.visibility = if (item is Item.Picture) View.VISIBLE else View.GONE
@@ -503,15 +574,26 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
                 favouriteButton.text = activity.getString(if (item.row.favourite) R.string.library_unfavourite else R.string.library_favourite)
                 handler.postDelayed(previewRunnable, PREVIEW_DELAY_MILLIS)
             }
-            is Item.Blocked -> setDetails(LibraryDetails.blocked(item.record, formatDate))
-            else -> Unit
+            is Item.Blocked -> {
+                val sections = LibraryDetails.blocked(item.record, formatDate)
+                val kept = BlockedThumbnails.file(appContext, item.record.sha256)?.isFile == true
+                setDetails(
+                    if (kept) {
+                        listOf(sections.first().let { it.copy(lines = listOf(activity.getString(R.string.library_blocked_preview_note)) + it.lines) }) + sections.drop(1)
+                    } else {
+                        sections
+                    }
+                )
+                handler.postDelayed(previewRunnable, PREVIEW_DELAY_MILLIS)
+            }
+            null -> Unit
         }
         placeholder.visibility = if (hasDetails) View.GONE else View.VISIBLE
         placeholder.text = when {
-            item is Item.BlockedLink -> activity.getString(R.string.library_blocked_hint)
             result == null -> activity.getString(R.string.library_loading)
             result.unreadable -> activity.getString(R.string.library_unreadable)
-            blockedMode -> activity.getString(R.string.library_blocked_empty)
+            filter == Filter.FAVOURITES -> activity.getString(R.string.library_favourites_empty)
+            filter == Filter.BLOCKED -> activity.getString(R.string.library_blocked_empty)
             else -> activity.getString(R.string.library_empty)
         }
         list.nextFocusRightId = firstVisibleButton()?.id ?: list.id
@@ -532,19 +614,33 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
     }
 
     private fun loadPreview() {
-        val item = currentItem() as? Item.Picture ?: return
-        val directory = loaded?.imagesDirectory ?: return
-        if (item.row.id !in (loaded?.missing ?: emptySet())) {
-            previews.request(item.row.imageKey + ":p") { decode(File(directory, item.row.fileName), PREVIEW_EDGE) }
+        when (val item = currentItem()) {
+            is Item.Picture -> {
+                val directory = loaded?.imagesDirectory ?: return
+                if (item.row.id !in (loaded?.missing ?: emptySet())) {
+                    previews.request(item.row.imageKey + ":p") { decode(File(directory, item.row.fileName), PREVIEW_EDGE) }
+                }
+            }
+            is Item.Blocked -> {
+                val file = BlockedThumbnails.file(appContext, item.record.sha256)
+                if (file != null) previews.request(blockedKey(item.record) + ":p") { if (file.isFile) decode(file, PREVIEW_EDGE) else null }
+            }
+            null -> return
         }
         showPreview()
     }
 
     private fun showPreview() {
-        val item = currentItem() as? Item.Picture ?: return
-        val bitmap = previews.cached(item.row.imageKey + ":p")
-        val unavailable = item.row.id in (loaded?.missing ?: emptySet()) || previews.hasFailed(item.row.imageKey + ":p")
+        val key = currentPreviewKey() ?: return
+        val bitmap = previews.cached(key)
+        val (unavailable, note) = when (val item = currentItem()) {
+            is Item.Picture -> (item.row.id in (loaded?.missing ?: emptySet()) || previews.hasFailed(key)) to R.string.library_preview_unavailable
+            is Item.Blocked -> (BlockedThumbnails.file(appContext, item.record.sha256)?.isFile != true || previews.hasFailed(key)) to
+                R.string.library_blocked_no_preview
+            null -> return
+        }
         previewImage.setImageBitmap(bitmap)
+        previewNote.text = activity.getString(note)
         previewNote.visibility = if (bitmap == null && unavailable) View.VISIBLE else View.GONE
     }
 
@@ -581,6 +677,8 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
     private fun onBlock() {
         val row = (currentItem() as? Item.Picture)?.row ?: return
         val id = row.id
+        val hash = row.aliases.firstOrNull { it.sha256.isNotBlank() }?.sha256
+        val source = loaded?.imagesDirectory?.let { File(it, row.fileName) }
         ConfirmDialog.show(
             activity,
             activity.getString(R.string.library_block_title),
@@ -588,7 +686,10 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
             activity.getString(R.string.library_block)
         ) {
             run(R.string.library_toast_blocked, refocusList = true) {
-                LibraryMaintenance.blockPicture(RefreshCoordinator.store(appContext), LibraryStorage.userState(appContext), id)
+                if (source != null && source.isFile) BlockedThumbnails.save(appContext, source, hash)
+                LibraryMaintenance.blockPicture(RefreshCoordinator.store(appContext), LibraryStorage.userState(appContext), id).also {
+                    if (it != LibraryMaintenance.Action.DONE) BlockedThumbnails.delete(appContext, hash)
+                }
             }
         }
     }
@@ -597,7 +698,9 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
         val record = (currentItem() as? Item.Blocked)?.record ?: return
         val recordId = record.id
         run(R.string.library_toast_unblocked, refocusList = true) {
-            if (LibraryMaintenance.unblock(RefreshCoordinator.store(appContext), LibraryStorage.userState(appContext), recordId)) {
+            val userState = LibraryStorage.userState(appContext)
+            if (LibraryMaintenance.unblock(RefreshCoordinator.store(appContext), userState, recordId)) {
+                BlockedThumbnails.keepOnly(appContext, userState.load().blocked.mapNotNull { it.sha256 }.toSet())
                 LibraryMaintenance.Action.DONE
             } else {
                 LibraryMaintenance.Action.GONE
@@ -688,8 +791,8 @@ internal class LibraryScreen(private val activity: Activity, private val blocked
     }
 
     private companion object {
-        const val LINK_ID = "link"
         const val STATE_SELECTED = "selected"
+        const val STATE_FILTER = "filter"
         const val STATUS_MILLIS = 500L
         const val PREVIEW_DELAY_MILLIS = 150L
         const val PROGRESS_MAX = 1000
