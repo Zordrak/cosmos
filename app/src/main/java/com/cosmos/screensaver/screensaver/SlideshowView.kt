@@ -19,9 +19,8 @@ import android.view.SurfaceView
 import com.cosmos.screensaver.settings.CaptionMode
 
 /**
- * Cross-fades between pre-placed [Frame]s and draws the caption chosen in settings. The picture
- * is drawn into a surface whose buffer matches the panel's native resolution, so a 4K screen
- * shows 4K images pixel for pixel even though the app's logical display is 1080p.
+ * Cross-fades between pre-placed [Frame]s and draws the caption chosen in settings. The surface
+ * buffer matches the display's logical size (see [nativeSize] for why never more).
  */
 internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
     private class Slide(
@@ -96,11 +95,18 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         holder.setFormat(PixelFormat.RGBX_8888)
     }
 
-    /** The panel's native mode, or the view's own size when that is unknown or unreasonable. */
+    /**
+     * The display's logical (app) size. Never the panel's physical mode: on MediaTek TVs such as
+     * the Sony X90L, a layer larger than the logical 1080p UI switches the compositor into its
+     * "4K/2K UI coexist" mode, and that leaves every app's video mispositioned (a quarter of the
+     * screen) until reboot, even after the layer is gone. The TV upscales this buffer instead.
+     */
     private fun nativeSize(): Pair<Int, Int> {
-        val mode = display?.mode
-        val (w, h) = if (mode != null) {
-            maxOf(mode.physicalWidth, mode.physicalHeight) to minOf(mode.physicalWidth, mode.physicalHeight)
+        val point = android.graphics.Point()
+        @Suppress("DEPRECATION")
+        display?.getRealSize(point)
+        val (w, h) = if (point.x > 0 && point.y > 0) {
+            maxOf(point.x, point.y) to minOf(point.x, point.y)
         } else {
             width to height
         }

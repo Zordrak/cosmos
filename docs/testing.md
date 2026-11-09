@@ -108,7 +108,7 @@ By eye, on the TV:
 
 ### Version 0.4.0 — superseded by the 0.5.0 list above
 
-1. Native 4K: run `adb shell am start -n com.cosmos.screensaver.debug/com.cosmos.screensaver.screensaver.TestPatternActivity`. The box shows the buffer size. Up close, the left half (alternating rows) and right half (alternating columns) should be crisp 1-pixel lines, not a grey blur. Any key closes it.
+1. Video after the screensaver: let the screensaver run, dismiss it (and separately let the TV sleep from it), then play video in iPlayer or YouTube and check the home-screen previews. Video must fill its normal area. `adb logcat | grep "4K/2K UI Coexist"` must never show "Launch 4K UI" for a Cosmos layer.
 2. Open Cosmos. The settings screen is navigable with the D-pad, and the status pane updates as images arrive from the six sources.
 3. Preview with the defaults. Images fill the screen without distortion, are sharp, and credits are faint and fade after about 15 seconds. Try each Picture fit and Credits option.
 4. Change the Picture quality, licence filter and source preset, and confirm that a refresh starts.

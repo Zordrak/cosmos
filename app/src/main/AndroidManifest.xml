@@ -53,11 +53,6 @@
             android:exported="false"
             android:theme="@style/CosmosBlack" />
 
-        <activity
-            android:name=".screensaver.TestPatternActivity"
-            android:exported="true"
-            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
-
         <service
             android:name=".screensaver.CosmosDreamService"
             android:exported="true"
