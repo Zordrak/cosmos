@@ -72,6 +72,31 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         get() = preferences.getInt(KEY_REFRESH_CURSOR, 0).coerceAtLeast(0)
         set(value) = preferences.edit().putInt(KEY_REFRESH_CURSOR, value.coerceAtLeast(0)).apply()
 
+    /** When Cosmos may save new pictures by itself. Not a viewing choice, so Reset leaves it alone. */
+    var downloadMode: DownloadMode
+        get() = preferences.enumValue(KEY_DOWNLOAD_MODE, DEFAULT_DOWNLOAD_MODE)
+        set(value) = preferences.edit().putString(KEY_DOWNLOAD_MODE, value.name).apply()
+
+    fun sourceChoice(provider: AssetProvider): SourceChoice =
+        SourceChoice.of(isEnabled(provider), sourceWeight(provider))
+
+    /** Off only switches the source off (its weight is kept); anything else switches it on and stores its weight in one write. */
+    fun setSourceChoice(provider: AssetProvider, choice: SourceChoice) {
+        val editor = preferences.edit()
+        if (choice == SourceChoice.OFF) {
+            editor.putBoolean(sourceKey(provider), false)
+        } else {
+            editor.putBoolean(sourceKey(provider), true)
+            val weight = when (choice) {
+                SourceChoice.LESS -> SourceWeight.LESS
+                SourceChoice.MORE -> SourceWeight.MORE
+                else -> SourceWeight.NORMAL
+            }
+            if (weight == SourceWeight.NORMAL) editor.remove(weightKey(provider)) else editor.putString(weightKey(provider), weight.name)
+        }
+        editor.apply()
+    }
+
     /** Streams every image instead of using the cache; the cache is left untouched. */
     var streamOnly: Boolean
         get() = preferences.getBoolean(KEY_STREAM_ONLY, false)
@@ -128,6 +153,8 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         private const val KEY_LICENCE_MODE = "licence_mode"
         private const val KEY_STREAM_ONLY = "stream_only"
         private const val KEY_ORDER_MODE = "order_mode"
+        private const val KEY_DOWNLOAD_MODE = "download_mode"
+        val DEFAULT_DOWNLOAD_MODE = DownloadMode.ALWAYS
         val DEFAULT_ORDER_MODE = OrderMode.FAIR
         const val DEFAULT_INTERVAL_SECONDS = 60
         val DEFAULT_DISPLAY_MODE = DisplayMode.FILL

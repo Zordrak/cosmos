@@ -48,6 +48,38 @@ internal enum class OrderMode {
 /** A relative per-picture weight for a source; applies to [OrderMode.FAIR] only. */
 internal enum class SourceWeight { LESS, NORMAL, MORE }
 
+/**
+ * What the user sees for one source: Off, or On with a weight. Off keeps the stored weight, so
+ * turning the source back on restores it. Off applies in every order; Less/More only in Fair shuffle.
+ */
+internal enum class SourceChoice {
+    OFF,
+    LESS,
+    NORMAL,
+    MORE;
+
+    companion object {
+        fun of(enabled: Boolean, weight: SourceWeight): SourceChoice = when {
+            !enabled -> OFF
+            weight == SourceWeight.LESS -> LESS
+            weight == SourceWeight.MORE -> MORE
+            else -> NORMAL
+        }
+    }
+}
+
+/** When Cosmos may save new pictures by itself. Searching now by hand is always allowed. */
+internal enum class DownloadMode {
+    /** Look for new pictures whenever the TV allows it (about daily). */
+    ALWAYS,
+
+    /** As [ALWAYS], but not on a connection the TV marks as limited-data; if that cannot be checked, saving continues. */
+    UNMETERED_ONLY,
+
+    /** No automatic saving. Saved pictures still play, and online playback and Search now still work. */
+    PAUSED
+}
+
 internal enum class LicenceMode {
     /** Any publicly available image from an enabled source. */
     ANY_AVAILABLE,

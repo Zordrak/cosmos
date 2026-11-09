@@ -12,8 +12,12 @@ class HomeSummariesTest {
         override val noSavedPictures = "none"
         override val unreadable = "unreadable"
         override val playingWithoutSaving = "streaming"
+        override val savingPaused = "paused"
     }
     private val size = { bytes: Long -> "${bytes}B" }
+
+    private fun saved(state: SavedPicturesState, playing: Boolean = false, paused: Boolean = false) =
+        HomeSummaries.savedPictures(labels, state, playing, paused, size)
 
     @Test
     fun `what to show joins collection and quality`() {
@@ -31,19 +35,27 @@ class HomeSummariesTest {
 
     @Test
     fun `loading is blank, empty is distinct and unreadable is distinct`() {
-        assertEquals("", HomeSummaries.savedPictures(labels, SavedPicturesState.Loading, false, size))
-        assertEquals("none", HomeSummaries.savedPictures(labels, SavedPicturesState.Loaded(0, 0), false, size))
-        assertEquals("unreadable", HomeSummaries.savedPictures(labels, SavedPicturesState.Unreadable, false, size))
+        assertEquals("", saved(SavedPicturesState.Loading))
+        assertEquals("none", saved(SavedPicturesState.Loaded(0, 0)))
+        assertEquals("unreadable", saved(SavedPicturesState.Unreadable))
     }
 
     @Test
     fun `normal shows physical count and size`() {
-        assertEquals("91 pictures \u00b7 5B", HomeSummaries.savedPictures(labels, SavedPicturesState.Loaded(91, 5), false, size))
+        assertEquals("91 pictures \u00b7 5B", saved(SavedPicturesState.Loaded(91, 5)))
     }
 
     @Test
     fun `playing without saving wins over a loaded library but not over unreadable`() {
-        assertEquals("streaming", HomeSummaries.savedPictures(labels, SavedPicturesState.Loaded(3, 3), true, size))
-        assertEquals("unreadable", HomeSummaries.savedPictures(labels, SavedPicturesState.Unreadable, true, size))
+        assertEquals("streaming", saved(SavedPicturesState.Loaded(3, 3), playing = true))
+        assertEquals("unreadable", saved(SavedPicturesState.Unreadable, playing = true))
+    }
+
+    @Test
+    fun `paused saving is shown quietly, below playing without saving and unreadable`() {
+        assertEquals("paused", saved(SavedPicturesState.Loaded(3, 3), paused = true))
+        assertEquals("paused", saved(SavedPicturesState.Loading, paused = true))
+        assertEquals("streaming", saved(SavedPicturesState.Loaded(3, 3), playing = true, paused = true))
+        assertEquals("unreadable", saved(SavedPicturesState.Unreadable, paused = true))
     }
 }

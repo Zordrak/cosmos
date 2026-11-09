@@ -24,6 +24,7 @@ internal data class LibrarySnapshot(
     val eligible: Int = 0,
     val lowOnSpace: Boolean = false,
     val lastAttemptAtEpochMillis: Long = 0L,
+    val lastSuccessAtEpochMillis: Long = 0L,
     val lastSummary: String = "",
     /** Distinct pictures, counting aliases of one picture once. */
     val pictures: Int = 0,
@@ -53,6 +54,12 @@ internal data class LibrarySnapshot(
             )
         }
 
+    /** Favourites alone exceed the size the user allows. Never true while the TV's space is unmeasured. */
+    fun favouritesAboveBudget(limitBytes: Long): Boolean {
+        val layout = barLayout(limitBytes)
+        return layout.known && favouriteBytes > layout.budget.budgetBytes
+    }
+
     companion object {
         /** Reads the library and current settings. Call on the storage executor, never on the main thread. */
         fun load(context: Context, settings: CosmosSettings, revision: Long): LibrarySnapshot {
@@ -74,6 +81,7 @@ internal data class LibrarySnapshot(
                         eligible = selection.eligible.size,
                         lowOnSpace = RefreshCoordinator.lowOnSpace(appContext, bytes),
                         lastAttemptAtEpochMillis = read.catalogue.lastAttemptAtEpochMillis,
+                        lastSuccessAtEpochMillis = read.catalogue.lastSuccessAtEpochMillis,
                         lastSummary = read.catalogue.lastSummary,
                         pictures = SelectionSnapshot.uniquePictures(entries),
                         favouritePictures = SelectionSnapshot.favouritePictures(entries, userState),

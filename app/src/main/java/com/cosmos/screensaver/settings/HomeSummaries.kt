@@ -9,6 +9,7 @@ internal interface SummaryLabels {
     val noSavedPictures: String
     val unreadable: String
     val playingWithoutSaving: String
+    val savingPaused: String
 }
 
 /** What is known about the saved pictures. Unknown-yet and unreadable are distinct from empty. */
@@ -26,14 +27,17 @@ internal object HomeSummaries {
     fun slideshow(labels: SummaryLabels, intervalSeconds: Int, orderLabel: String?): String =
         listOfNotNull(labels.interval(intervalSeconds), orderLabel).joinToString(" \u00b7 ")
 
+    /** Unreadable always wins; then the two quiet modes, so a forgotten test toggle is never a mystery. */
     fun savedPictures(
         labels: SummaryLabels,
         state: SavedPicturesState,
         playingWithoutSaving: Boolean,
+        savingPaused: Boolean,
         formatSize: (Long) -> String
     ): String = when {
         state is SavedPicturesState.Unreadable -> labels.unreadable
         playingWithoutSaving -> labels.playingWithoutSaving
+        savingPaused -> labels.savingPaused
         state is SavedPicturesState.Loading -> ""
         state is SavedPicturesState.Loaded ->
             if (state.files == 0) labels.noSavedPictures else labels.picturesAndSize(state.files, formatSize(state.bytes))

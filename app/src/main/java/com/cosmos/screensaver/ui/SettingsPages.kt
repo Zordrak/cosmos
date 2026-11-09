@@ -18,6 +18,7 @@ import com.cosmos.screensaver.settings.COLLECTION_CYCLE
 import com.cosmos.screensaver.settings.CollectionPreset
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.settings.DisplayMode
+import com.cosmos.screensaver.settings.DownloadMode
 import com.cosmos.screensaver.settings.HomeSummaries
 import com.cosmos.screensaver.settings.IdleReading
 import com.cosmos.screensaver.settings.IdleTime
@@ -25,9 +26,13 @@ import com.cosmos.screensaver.settings.IdleWrite
 import com.cosmos.screensaver.settings.LicenceMode
 import com.cosmos.screensaver.settings.QualityPreference
 import com.cosmos.screensaver.settings.ScreensaverSelection
+import com.cosmos.screensaver.settings.SetupFacts
+import com.cosmos.screensaver.settings.SetupHealth
+import com.cosmos.screensaver.settings.SourceChoice
 import com.cosmos.screensaver.settings.applyCollection
 import com.cosmos.screensaver.settings.qualityChoices
 import com.cosmos.screensaver.source.Sources
+import com.cosmos.screensaver.sync.Meteredness
 import com.cosmos.screensaver.sync.RefreshCoordinator
 
 /** The settings pages. Home is the hub; each other page is one decision area reached from it. */
@@ -50,6 +55,12 @@ internal interface PageEnv {
     /** The saved pictures or their Undo state changed: reload the snapshot and keep it fresh while Undo can still happen. */
     fun libraryChanged()
     fun lookForNewPictures()
+
+    /** The download mode changed: reschedule the daily job and re-check what saving is allowed. */
+    fun downloadModeChanged()
+
+    /** What the TV last said about the connection (see [com.cosmos.screensaver.sync.Meteredness]). */
+    val meteredness: Meteredness
     fun startPreview()
     fun openTvScreensaverSettings()
 
@@ -93,12 +104,13 @@ internal class SettingsPages(private val env: PageEnv) {
         left.addView(ui.text(s(R.string.home_tagline), SettingsType.LEFT_PANE, SettingsColors.SECONDARY).apply {
             setPadding(0, ui.dp(8), 0, ui.dp(28))
         })
-        val updateStatus = statusViews(ui, left)
+        val updateStatus = statusViews(ui, left, setupNoticeOwnsWarnings = true)
         left.addView(View(activity), LinearLayout.LayoutParams(1, 0, 1f))
         left.addView(ui.text(s(R.string.home_privacy), 14f, SettingsColors.MUTED))
 
         UndoNotice.row(ui, env)
         ui.action("preview", s(R.string.home_preview), { s(R.string.home_preview_summary) }) { env.startPreview() }
+        setupNoticeRow(ui)
         ui.action(
             "what", s(R.string.home_what_to_show), { s(R.string.home_what_to_show_summary) },
             value = { HomeSummaries.whatToShow(text, settings.collection, settings.quality) }
@@ -110,7 +122,9 @@ internal class SettingsPages(private val env: PageEnv) {
         ui.action(
             "saved", s(R.string.home_saved), { s(R.string.home_saved_summary) },
             value = {
-                HomeSummaries.savedPictures(text, env.snapshot.saved, settings.streamOnly) {
+                HomeSummaries.savedPictures(
+                    text, env.snapshot.saved, settings.streamOnly, settings.downloadMode == DownloadMode.PAUSED
+                ) {
                     ByteSizes.format(it)
                 }.ifEmpty { null }
             }
@@ -126,8 +140,51 @@ internal class SettingsPages(private val env: PageEnv) {
         }
     }
 
-    /** Count, storage and last-checked lines, shared by Home and Saved pictures. Returns their updater. */
-    private fun statusViews(ui: SettingsUi, left: LinearLayout): () -> Unit {
+    /** One calm row that appears only while something needs fixing; Select does the fix. Hidden rows never take focus. */
+    private fun setupNoticeRow(ui: SettingsUi) {
+        ui.action(
+            "setup_fix", s(R.string.setup_title),
+            summary = { currentNotice()?.message.orEmpty() },
+            value = { currentNotice()?.fixLabel },
+            visible = { currentNotice()?.let { it.fix != null } == true }
+        ) {
+            when (currentNotice()?.fix) {
+                SetupFix.CHOOSE_SCREENSAVER -> env.openTvScreensaverSettings()
+                SetupFix.REVIEW_CHOICES -> env.openPage(Page.WHAT_TO_SHOW)
+                SetupFix.REVIEW_SIZE -> env.openPage(Page.SPACE)
+                SetupFix.TRY_AGAIN -> if (!RefreshCoordinator.isRunning) env.lookForNewPictures()
+                null -> Unit
+            }
+        }
+    }
+
+    private fun currentNotice(): SetupNotice? {
+        val snap = env.snapshot
+        val state = SetupHealth.evaluate(
+            SetupFacts(
+                loaded = snap.loaded,
+                unreadable = snap.unreadable,
+                selection = env.screensaverSelection(),
+                enabledSources = settings.enabledProviders.size,
+                eligible = snap.eligible,
+                lowOnSpace = snap.lowOnSpace,
+                favouritesAboveBudget = snap.favouritesAboveBudget(settings.cacheLimitBytes),
+                lastSuccessMillis = snap.lastSuccessAtEpochMillis,
+                lastAttemptMillis = snap.lastAttemptAtEpochMillis,
+                nowMillis = System.currentTimeMillis(),
+                refreshing = RefreshCoordinator.isRunning,
+                savingPaused = settings.downloadMode == DownloadMode.PAUSED,
+                playingWithoutSaving = settings.streamOnly
+            )
+        )
+        return SetupNotices.of(activity, state)
+    }
+
+    /**
+     * Count, storage and last-checked lines, shared by Home and Saved pictures. Returns their updater.
+     * On Home the Needs attention row owns the no-sources and low-space warnings, so they are not repeated here.
+     */
+    private fun statusViews(ui: SettingsUi, left: LinearLayout, setupNoticeOwnsWarnings: Boolean = false): () -> Unit {
         val status = ui.text("", 20f, SettingsColors.ACCENT, bold = true).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
@@ -140,7 +197,8 @@ internal class SettingsPages(private val env: PageEnv) {
             val snap = env.snapshot
             val noSources = settings.enabledProviders.isEmpty()
             when {
-                noSources -> status.set(s(R.string.home_no_sources), SettingsColors.WARNING)
+                noSources && !setupNoticeOwnsWarnings -> status.set(s(R.string.home_no_sources), SettingsColors.WARNING)
+                noSources -> status.set("", SettingsColors.ACCENT)
                 snap.unreadable -> status.set(s(R.string.home_unreadable), SettingsColors.WARNING)
                 !snap.loaded -> status.set("", SettingsColors.ACCENT)
                 else -> status.set(
@@ -150,7 +208,7 @@ internal class SettingsPages(private val env: PageEnv) {
             }
             if (snap.loaded && !snap.unreadable) {
                 val size = ByteSizes.format(snap.bytes)
-                if (snap.lowOnSpace) {
+                if (snap.lowOnSpace && !setupNoticeOwnsWarnings) {
                     storage.set(activity.getString(R.string.home_low_space, size), SettingsColors.WARNING)
                 } else {
                     storage.set(activity.getString(R.string.home_storage, size), SettingsColors.SECONDARY)
@@ -268,14 +326,24 @@ internal class SettingsPages(private val env: PageEnv) {
         val ui = SettingsUi(activity)
         subPageLeft(ui, left, R.string.sources_left_title, R.string.sources_left_body)
         AssetProvider.entries.forEach { provider ->
-            ui.switch(
+            ui.choice(
                 "source_${provider.name}", Sources.label(provider),
-                summary = { if (it) sourceAddress(provider) else s(R.string.source_off_summary) },
-                get = { settings.isEnabled(provider) },
-                set = {
-                    settings.setEnabled(provider, it)
-                    env.viewingChanged(refresh = true)
-                }
+                options = {
+                    SourceChoice.entries.map {
+                        PickerOption(
+                            it, text.sourceChoice(it), text.sourceChoiceDescription(it), recommended = it == SourceChoice.NORMAL
+                        )
+                    }
+                },
+                current = { settings.sourceChoice(provider) },
+                onChosen = { chosen ->
+                    val wasOn = settings.isEnabled(provider)
+                    settings.setSourceChoice(provider, chosen)
+                    // Less/More only reweight Fair shuffle, so only turning a source on or off needs a new search.
+                    if (wasOn != settings.isEnabled(provider)) env.viewingChanged(refresh = true)
+                },
+                summary = { if (it == SourceChoice.OFF) s(R.string.source_off_summary) else sourceAddress(provider) },
+                valueLabel = text::sourceChoice
             )
         }
         return PageContent(ui.rows)
@@ -401,16 +469,55 @@ internal class SettingsPages(private val env: PageEnv) {
             "space", s(R.string.row_space), { s(R.string.row_space_summary) },
             value = { SpacePage.limitLabel(activity, settings.cacheLimitBytes) }
         ) { env.openPage(Page.SPACE) }
+        ui.choice(
+            "download", s(R.string.row_download),
+            options = {
+                DownloadMode.entries.map {
+                    PickerOption(
+                        it, text.downloadMode(it), text.downloadModeSummary(it),
+                        recommended = it == DownloadMode.ALWAYS,
+                        disabledReason = if (it == DownloadMode.UNMETERED_ONLY && env.meteredness == Meteredness.UNAVAILABLE) {
+                            s(R.string.download_unmetered_unavailable)
+                        } else {
+                            null
+                        }
+                    )
+                }
+            },
+            current = { settings.downloadMode },
+            onChosen = {
+                settings.downloadMode = it
+                env.downloadModeChanged()
+            },
+            summary = { mode ->
+                when {
+                    mode != DownloadMode.UNMETERED_ONLY -> text.downloadModeSummary(mode)
+                    env.meteredness == Meteredness.UNAVAILABLE -> s(R.string.download_note_unavailable)
+                    env.meteredness == Meteredness.UNKNOWN_NOW -> s(R.string.download_note_offline)
+                    env.meteredness == Meteredness.METERED -> s(R.string.download_note_limited)
+                    else -> text.downloadModeSummary(mode)
+                }
+            },
+            valueLabel = text::downloadMode
+        )
+        ui.action(
+            "refresh", s(R.string.row_refresh),
+            {
+                s(
+                    when {
+                        RefreshCoordinator.isRunning -> R.string.home_refreshing
+                        env.snapshot.pending != null -> R.string.row_refresh_waiting
+                        else -> R.string.row_refresh_summary
+                    }
+                )
+            }
+        ) {
+            if (!RefreshCoordinator.isRunning) env.lookForNewPictures()
+        }
         ui.action(
             "tidy", s(R.string.row_tidy), { s(R.string.row_tidy_summary) },
             enabledReason = { bulk.reason(BulkActions.Action.TIDY) }
         ) { bulk.request(BulkActions.Action.TIDY) }
-        ui.action(
-            "refresh", s(R.string.row_refresh),
-            { s(if (RefreshCoordinator.isRunning) R.string.home_refreshing else R.string.row_refresh_summary) }
-        ) {
-            if (!RefreshCoordinator.isRunning) env.lookForNewPictures()
-        }
         return PageContent(ui.rows) {
             updateStatus()
             val snap = env.snapshot
@@ -465,6 +572,7 @@ internal class SettingsPages(private val env: PageEnv) {
                         ScreensaverSelection.COSMOS -> R.string.tv_screensaver_cosmos_summary
                         ScreensaverSelection.OTHER -> R.string.tv_screensaver_other_summary
                         ScreensaverSelection.NONE -> R.string.tv_screensaver_none_summary
+                        ScreensaverSelection.DISABLED -> R.string.tv_screensaver_disabled_summary
                         ScreensaverSelection.UNKNOWN -> R.string.tv_screensaver_unknown_summary
                     }
                 )
@@ -475,6 +583,7 @@ internal class SettingsPages(private val env: PageEnv) {
                         ScreensaverSelection.COSMOS -> R.string.tv_screensaver_cosmos
                         ScreensaverSelection.OTHER -> R.string.tv_screensaver_other
                         ScreensaverSelection.NONE -> R.string.tv_screensaver_none
+                        ScreensaverSelection.DISABLED -> R.string.tv_screensaver_disabled
                         ScreensaverSelection.UNKNOWN -> R.string.tv_screensaver_unknown
                     }
                 )

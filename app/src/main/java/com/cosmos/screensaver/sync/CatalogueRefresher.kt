@@ -106,7 +106,9 @@ internal class CatalogueRefresher(
     /** True while saving must wait (a removal can still be undone). */
     private val holdAdmissions: () -> Boolean = { false },
     /** Where progress is reported (what is downloading, how fast); null reports nothing. */
-    private val progress: ProgressTracker? = null
+    private val progress: ProgressTracker? = null,
+    /** False once the download mode no longer permits saving; checked before each source and picture. */
+    private val allowSaving: () -> Boolean = { true }
 ) {
     data class Limits(
         val maxLeadsPerSource: Int = 60,
@@ -211,6 +213,7 @@ internal class CatalogueRefresher(
         var rejected = 0
         var anySourceReached = false
         var space = SpaceStatus()
+        var stoppedByPolicy = false
 
         withdrawnCount += LibraryMaintenance.screenLocal(store, userState).removed
 
@@ -221,11 +224,17 @@ internal class CatalogueRefresher(
             space = SpaceStatus(measurementUnavailable = true)
         } else if (budgetAtStart.budgetBytes < limits.minBudgetBytes) {
             space = SpaceStatus(devicePressure = true)
+        } else if (!allowSaving()) {
+            stoppedByPolicy = true
         } else {
             recheckSavedPictures(newRejections, rejections)
             val full = usedAtStart + limits.downloadReserveBytes > budgetAtStart.budgetBytes
             var runAdmissions = 0
             sources@ for (adapter in rotated(adapters.sortedBy { it.provider.ordinal })) {
+                if (!allowSaving()) {
+                    stoppedByPolicy = true
+                    break@sources
+                }
                 val site = DjangoplicitySite.entries.firstOrNull { it.provider == adapter.provider }
                 if (site != null && selection.licenceMode == LicenceMode.OPEN_LICENCE_ONLY) {
                     when (val state = policyFor(site)) {
@@ -263,6 +272,10 @@ internal class CatalogueRefresher(
                     if (resolved >= limits.maxLeadsPerSource || sourceAdmissions >= limits.maxAdmissionsPerSource) break
                     if (full && runAdmissions >= limits.maxAdmissionsWhenFull) break@sources
                     if (holdAdmissions()) break@sources
+                    if (!allowSaving()) {
+                        stoppedByPolicy = true
+                        break@sources
+                    }
                     resolved++
                     val key = "$keyPrefix${lead.id}"
                     run?.discovering(adapter.label)
@@ -316,10 +329,11 @@ internal class CatalogueRefresher(
             val available = SelectionSnapshot.build(current.entries, selection, providers, userState.load()).eligible.size
             current.copy(
                 rejections = (current.rejections - droppedRejectionKeys) + newRejections,
-                lastAttemptAtEpochMillis = finishedAt,
+                lastAttemptAtEpochMillis = if (stoppedByPolicy) current.lastAttemptAtEpochMillis else finishedAt,
                 lastSuccessAtEpochMillis = if (anySourceReached) finishedAt else current.lastSuccessAtEpochMillis,
-                lastSummary = partial.copy(total = available).summary,
-                selectionFingerprint = fingerprint
+                lastSummary = if (stoppedByPolicy) current.lastSummary else partial.copy(total = available).summary,
+                // A pass cut short by the download mode is not a completed look, so the selection stays due.
+                selectionFingerprint = if (stoppedByPolicy) current.selectionFingerprint else fingerprint
             )
         }
         LibraryMaintenance.deleteOrphanFiles(store, clock())

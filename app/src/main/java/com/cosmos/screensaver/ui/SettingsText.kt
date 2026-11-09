@@ -7,6 +7,8 @@ import com.cosmos.screensaver.settings.CaptionSize
 import com.cosmos.screensaver.settings.OrderMode
 import com.cosmos.screensaver.settings.CollectionPreset
 import com.cosmos.screensaver.settings.DisplayMode
+import com.cosmos.screensaver.settings.DownloadMode
+import com.cosmos.screensaver.settings.SourceChoice
 import com.cosmos.screensaver.settings.IdleReading
 import com.cosmos.screensaver.settings.IdleTime
 import com.cosmos.screensaver.settings.QualityPreference
@@ -166,4 +168,39 @@ internal class SettingsText(private val context: Context) : SummaryLabels {
     override val noSavedPictures: String get() = s(R.string.summary_no_saved_pictures)
     override val unreadable: String get() = s(R.string.summary_unreadable)
     override val playingWithoutSaving: String get() = s(R.string.summary_playing_without_saving)
+    override val savingPaused: String get() = s(R.string.summary_saving_paused)
+
+    fun downloadMode(mode: DownloadMode) = s(
+        when (mode) {
+            DownloadMode.ALWAYS -> R.string.download_always
+            DownloadMode.UNMETERED_ONLY -> R.string.download_unmetered
+            DownloadMode.PAUSED -> R.string.download_paused
+        }
+    )
+
+    fun downloadModeSummary(mode: DownloadMode) = s(
+        when (mode) {
+            DownloadMode.ALWAYS -> R.string.download_always_summary
+            DownloadMode.UNMETERED_ONLY -> R.string.download_unmetered_summary
+            DownloadMode.PAUSED -> R.string.download_paused_summary
+        }
+    )
+
+    fun sourceChoice(choice: SourceChoice) = s(
+        when (choice) {
+            SourceChoice.OFF -> R.string.choice_off
+            SourceChoice.LESS -> R.string.choice_less
+            SourceChoice.NORMAL -> R.string.choice_normal
+            SourceChoice.MORE -> R.string.choice_more
+        }
+    )
+
+    fun sourceChoiceDescription(choice: SourceChoice) = s(
+        when (choice) {
+            SourceChoice.OFF -> R.string.choice_off_description
+            SourceChoice.LESS -> R.string.choice_less_description
+            SourceChoice.NORMAL -> R.string.choice_normal_description
+            SourceChoice.MORE -> R.string.choice_more_description
+        }
+    )
 }

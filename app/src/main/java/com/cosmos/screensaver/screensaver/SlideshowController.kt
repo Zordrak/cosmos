@@ -55,6 +55,7 @@ internal class SlideshowController(
     private var streamedLast = false
 
     private val startup = StartupStatus()
+    private val freshness = DreamFreshness { SystemClock.elapsedRealtime() }
     private var startedAtMillis = 0L
     private val advanceTask = Runnable { advance() }
 
@@ -75,13 +76,28 @@ internal class SlideshowController(
         val thread = HandlerThread("cosmos-slideshow").also { it.start() }
         worker = thread
         workerHandler = Handler(thread.looper).also { it.post(advanceTask) }
-        RefreshCoordinator.requestRefresh(context) {
-            // A finished refresh may have filled the library: look again now rather than at the next retry.
-            if (gen == generation && !shownAny) workerHandler?.let { handler ->
-                handler.removeCallbacks(advanceTask)
-                handler.post(advanceTask)
-            }
+        RefreshCoordinator.requestRefresh(context) { onRefreshFinished(gen) }
+        mainHandler.postDelayed(freshnessTick(gen), DreamFreshness.CHECK_INTERVAL_MILLIS)
+    }
+
+    private fun onRefreshFinished(gen: Int) {
+        // A finished refresh may have filled the library: look again now rather than at the next retry.
+        if (gen == generation && !shownAny) workerHandler?.let { handler ->
+            handler.removeCallbacks(advanceTask)
+            handler.post(advanceTask)
         }
+    }
+
+    /**
+     * While the screensaver runs, now and then asks whether a refresh is due, so a TV left in
+     * screensaver mode still gets new pictures. No wake lock or service is held; it stops with the session.
+     */
+    private fun freshnessTick(gen: Int): Runnable = Runnable {
+        if (gen != generation) return@Runnable
+        if (freshness.due()) {
+            LibraryStorage.post { RefreshCoordinator.requestRefresh(context) { onRefreshFinished(gen) } }
+        }
+        mainHandler.postDelayed(freshnessTick(gen), DreamFreshness.CHECK_INTERVAL_MILLIS)
     }
 
     fun stop() {

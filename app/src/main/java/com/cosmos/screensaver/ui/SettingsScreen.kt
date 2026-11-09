@@ -22,7 +22,10 @@ import com.cosmos.screensaver.settings.AndroidIdleSetting
 import com.cosmos.screensaver.settings.IdleTime
 import com.cosmos.screensaver.settings.ScreensaverSelection
 import com.cosmos.screensaver.sync.LibraryStorage
+import com.cosmos.screensaver.sync.Meteredness
 import com.cosmos.screensaver.sync.RefreshCoordinator
+import com.cosmos.screensaver.sync.RefreshJobService
+import com.cosmos.screensaver.sync.RefreshReason
 
 /**
  * The shared scaffold of every settings page: a left information pane and a right list of rows. It
@@ -34,6 +37,10 @@ internal class SettingsScreen(override val activity: Activity, private val page:
     override val text = SettingsText(activity)
     override val idleTime = IdleTime(AndroidIdleSetting(activity)) { message, error -> Log.w(TAG, message, error) }
     override var snapshot = LibrarySnapshot()
+        private set
+
+    /** What the TV last said about the connection; refreshed off the main thread when the page opens or the download mode changes. */
+    override var meteredness = Meteredness.UNKNOWN_NOW
         private set
 
     private val handler = Handler(Looper.getMainLooper())
@@ -95,7 +102,10 @@ internal class SettingsScreen(override val activity: Activity, private val page:
         if (autoRefresh) {
             val appContext = activity.applicationContext
             // requestRefresh reads the library, so it runs on the storage thread, never on the main thread.
-            LibraryStorage.post { RefreshCoordinator.requestRefresh(appContext) { reloadSnapshot() } }
+            LibraryStorage.post {
+                refreshMeteredness()
+                RefreshCoordinator.requestRefresh(appContext) { reloadSnapshot() }
+            }
             startPolling()
         } else if (RefreshCoordinator.isRunning) {
             startPolling()
@@ -121,7 +131,7 @@ internal class SettingsScreen(override val activity: Activity, private val page:
     }
 
     override fun viewingChanged(refresh: Boolean) {
-        if (refresh) requestForcedRefresh()
+        if (refresh) requestRefresh(RefreshReason.SETTINGS_CHANGED)
         reloadSnapshot()
         updateAll()
     }
@@ -132,8 +142,30 @@ internal class SettingsScreen(override val activity: Activity, private val page:
     }
 
     override fun lookForNewPictures() {
-        requestForcedRefresh()
+        requestRefresh(RefreshReason.EXPLICIT_SEARCH)
         updateAll()
+    }
+
+    override fun downloadModeChanged() {
+        val appContext = activity.applicationContext
+        LibraryStorage.post {
+            RefreshJobService.reconcile(appContext)
+            refreshMeteredness()
+            RefreshCoordinator.requestRefresh(appContext) { reloadSnapshot() }
+        }
+        reloadSnapshot()
+        updateAll()
+        startPolling()
+    }
+
+    /** Re-reads what the TV says about the connection; off the main thread, then redraws. */
+    private fun refreshMeteredness() {
+        val reading = RefreshCoordinator.meteredness(activity.applicationContext)
+        handler.post {
+            if (activity.isFinishing || activity.isDestroyed || reading == meteredness) return@post
+            meteredness = reading
+            updateAll()
+        }
     }
 
     override fun startPreview() {
@@ -171,16 +203,20 @@ internal class SettingsScreen(override val activity: Activity, private val page:
     }
 
     override fun screensaverSelection(): ScreensaverSelection = try {
-        ScreensaverSelection.parse(
-            Settings.Secure.getString(activity.contentResolver, SCREENSAVER_COMPONENTS), activity.packageName
-        )
+        val resolver = activity.contentResolver
+        val enabled = try {
+            Settings.Secure.getInt(resolver, SCREENSAVER_ENABLED)
+        } catch (missing: Settings.SettingNotFoundException) {
+            null
+        }
+        ScreensaverSelection.parse(Settings.Secure.getString(resolver, SCREENSAVER_COMPONENTS), activity.packageName, enabled)
     } catch (error: SecurityException) {
         ScreensaverSelection.UNKNOWN
     }
 
-    private fun requestForcedRefresh() {
+    private fun requestRefresh(reason: RefreshReason) {
         val appContext = activity.applicationContext
-        LibraryStorage.post { RefreshCoordinator.requestRefresh(appContext, force = true) { reloadSnapshot() } }
+        LibraryStorage.post { RefreshCoordinator.requestRefresh(appContext, reason) { reloadSnapshot() } }
         startPolling()
     }
 
@@ -221,5 +257,6 @@ internal class SettingsScreen(override val activity: Activity, private val page:
         const val UNDO_POLL_MILLIS = 1_000L
         const val POLL_GRACE_MILLIS = 3_000L
         const val SCREENSAVER_COMPONENTS = "screensaver_components"
+        const val SCREENSAVER_ENABLED = "screensaver_enabled"
     }
 }

@@ -13,6 +13,21 @@
     <string name="home_no_sources">All sources are off, so there is nothing to show. Turn one on under What to show.</string>
     <string name="home_privacy">No account, analytics, tracking or advertising. Everything Cosmos downloads stays on this TV.</string>
     <string name="home_unreadable">Cosmos can\'t read its saved pictures right now.</string>
+    <string name="setup_screensaver_not_selected">Cosmos isn\'t this TV\'s screensaver yet.</string>
+    <string name="setup_screensaver_other">Another screensaver is selected on this TV.</string>
+    <string name="setup_screensaver_disabled">The TV\'s screensaver is switched off.</string>
+    <string name="setup_no_matching">No saved picture matches your choices yet.</string>
+    <string name="setup_low_space">This TV is low on free space, so Cosmos may not be able to save new pictures.</string>
+    <string name="setup_favourites_fill_space">Your favourites use all the space allowed, so no more pictures can be saved.</string>
+    <plurals name="setup_cannot_reach">
+        <item quantity="one">Cosmos hasn\'t reached the picture sources for %d day.</item>
+        <item quantity="other">Cosmos hasn\'t reached the picture sources for %d days.</item>
+    </plurals>
+    <string name="setup_title">Needs attention</string>
+    <string name="setup_fix_screensaver">Choose Cosmos</string>
+    <string name="setup_fix_what_to_show">Review choices</string>
+    <string name="setup_fix_space">Review size</string>
+    <string name="setup_fix_retry">Try again</string>
     <plurals name="home_image_count">
         <item quantity="one">%d picture ready to show</item>
         <item quantity="other">%d pictures ready to show</item>
@@ -34,6 +49,7 @@
     <!-- Summaries -->
     <string name="summary_no_saved_pictures">No saved pictures yet</string>
     <string name="summary_playing_without_saving">Playing without saving</string>
+    <string name="summary_saving_paused">Automatic saving paused</string>
     <plurals name="summary_saved_pictures">
         <item quantity="one">%1$d picture · %2$s</item>
         <item quantity="other">%1$d pictures · %2$s</item>
@@ -90,8 +106,16 @@
 
     <!-- Sources -->
     <string name="sources_left_title">Sources</string>
-    <string name="sources_left_body">Turn individual sources on or off. Pictures already saved from a source you turn off are kept for later.</string>
+    <string name="sources_left_body">Choose Off, Less, Normal or More for each source. Off hides a source in every order. Less and More change how often each of its pictures appears in Fair shuffle. Pictures already saved from a source you turn off are kept for later.</string>
     <string name="source_off_summary">Off. Not used for showing or saving.</string>
+    <string name="choice_off">Off</string>
+    <string name="choice_less">Less</string>
+    <string name="choice_normal">Normal</string>
+    <string name="choice_more">More</string>
+    <string name="choice_off_description">Not used for showing or saving.</string>
+    <string name="choice_less_description">Each picture appears less often in Fair shuffle.</string>
+    <string name="choice_normal_description">Each picture has an equal chance in Fair shuffle.</string>
+    <string name="choice_more_description">Each picture appears more often in Fair shuffle.</string>
     <string name="summary_every_minute">Every minute</string>
 
     <!-- Slideshow -->
@@ -142,7 +166,19 @@
     <!-- Saved pictures -->
     <string name="saved_left_title">On this TV</string>
     <string name="row_refresh">Look for new pictures now</string>
-    <string name="row_refresh_summary">Checks the sources now. This also happens automatically.</string>
+    <string name="row_refresh_summary">Checks the sources now, even when automatic saving is paused or limited.</string>
+    <string name="row_refresh_waiting">Search will start when Undo finishes.</string>
+    <string name="row_download">Download new pictures</string>
+    <string name="download_always">Automatically</string>
+    <string name="download_unmetered">Not on limited data</string>
+    <string name="download_paused">Paused</string>
+    <string name="download_always_summary">Look for new pictures periodically, usually about daily when the TV allows it.</string>
+    <string name="download_unmetered_summary">Avoid automatic saving on connections marked as limited; if this TV cannot check, normal saving continues.</string>
+    <string name="download_paused_summary">Automatic saving is paused. Saved pictures still play; online playback and Search now can use the internet.</string>
+    <string name="download_unmetered_unavailable">Cannot check connection limits; automatic saving is allowed.</string>
+    <string name="download_note_unavailable">This TV cannot tell Cosmos whether the connection is limited, so automatic saving is allowed.</string>
+    <string name="download_note_offline">The TV looks offline right now. Cosmos will try again when it is connected.</string>
+    <string name="download_note_limited">The current connection is marked as limited (a Wi-Fi hotspot can be), so automatic saving is waiting.</string>
     <string name="row_space">Space for pictures</string>
     <string name="row_space_summary">How much room Cosmos may use on this TV.</string>
     <string name="value_automatic">Automatic</string>
@@ -235,6 +271,8 @@
     <string name="tv_screensaver_other">Another</string>
     <string name="tv_screensaver_none">None</string>
     <string name="tv_screensaver_unknown">Can\'t check</string>
+    <string name="tv_screensaver_disabled">Switched off</string>
+    <string name="tv_screensaver_disabled_summary">The TV\'s screensaver is switched off. Select to turn it on and choose Cosmos.</string>
     <string name="tv_screensaver_cosmos_summary">Cosmos is selected. Select to open the TV\'s screensaver settings.</string>
     <string name="tv_screensaver_other_summary">Another screensaver is selected. Select to choose Cosmos in the TV\'s settings.</string>
     <string name="tv_screensaver_none_summary">No screensaver is selected. Select to choose Cosmos in the TV\'s settings.</string>

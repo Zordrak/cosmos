@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Lets the user change the TV's own inactivity timeout from Cosmos. Granted by the user in system settings, never silently. -->
     <uses-permission
         android:name="android.permission.WRITE_SETTINGS"

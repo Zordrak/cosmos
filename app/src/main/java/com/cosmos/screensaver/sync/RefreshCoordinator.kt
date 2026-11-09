@@ -12,6 +12,7 @@ import com.cosmos.screensaver.catalogue.UserState
 import com.cosmos.screensaver.catalogue.UserStateStore
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.settings.CosmosSettings
+import com.cosmos.screensaver.settings.DownloadMode
 import com.cosmos.screensaver.settings.ImageSelection
 import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.source.HttpsFetcher
@@ -39,11 +40,30 @@ internal object RefreshCoordinator {
         }
     }
     private val gate = RefreshGate()
-    private val deferredForUndo = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val deferLock = Any()
+    private var deferredReason: RefreshReason? = null
     private val undoListenerRegistered = java.util.concurrent.atomic.AtomicBoolean(false)
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
+    /** How connection limits are read; replaced in tests. */
+    @Volatile
+    internal var probeFor: (Context) -> NetworkProbe = { AndroidNetworkProbe(it) }
+
     val isRunning: Boolean get() = gate.isRunning
+
+    /** What the TV says about the connection now. Reads a system service, so call off the main thread when it matters. */
+    fun meteredness(context: Context): Meteredness = probeFor(context.applicationContext).meteredness()
+
+    /**
+     * Whether a refresh for [reason] may save pictures under the current download mode. Only the
+     * mode that needs it consults the connection, so Automatically never touches the network service.
+     */
+    fun policyAllows(context: Context, reason: RefreshReason): Boolean {
+        val mode = CosmosSettings(context.applicationContext).downloadMode
+        val checkConnection = mode == DownloadMode.UNMETERED_ONLY && reason != RefreshReason.EXPLICIT_SEARCH
+        val meteredness = if (checkConnection) meteredness(context) else Meteredness.UNKNOWN_NOW
+        return savingAllowed(mode, meteredness, reason)
+    }
 
     /**
      * The saved pictures live in app data (not the cache directory): they are user data -
@@ -104,13 +124,14 @@ internal object RefreshCoordinator {
     }
 
     /**
-     * Starts a refresh if one is due (or [force] is set). Returns false if nothing was started.
-     * A forced request made while a refresh is running queues one more run, so settings changed
-     * mid-refresh are always applied.
+     * Starts a refresh for [reason] if one is due and allowed. Returns false if nothing was started.
+     * Only [RefreshReason.AUTO] waits for staleness; every reason waits for Undo and respects the
+     * download mode, except an explicit search, which overrides the mode for its one pass. A settings
+     * change or search made while a refresh runs queues one more pass, re-checked when it starts.
      */
     fun requestRefresh(
         context: Context,
-        force: Boolean = false,
+        reason: RefreshReason = RefreshReason.AUTO,
         onFinished: ((RefreshResult?) -> Unit)? = null
     ): Boolean {
         val appContext = context.applicationContext
@@ -118,26 +139,25 @@ internal object RefreshCoordinator {
         val trash = TrashBin.of(appContext)
         trash.recoverAndExpire()
         if (trash.pending() != null) {
-            deferForUndo(appContext, trash)
+            deferForUndo(appContext, trash, reason)
             return false
         }
         val settings = CosmosSettings(appContext)
-        if (!force && !isStale(
+        if (reason == RefreshReason.AUTO && !isStale(
                 store.load(), System.currentTimeMillis(), settings.selection, settings.enabledProviders,
                 LibraryStorage.userState(appContext).load()
             )
         ) {
             return false
         }
-        if (!gate.request(force)) return false
+        if (!policyAllows(appContext, reason)) return false
+        if (!gate.request(reason)) return false
 
         try {
             executor.execute {
                 var result: RefreshResult?
                 try {
-                    do {
-                        result = runOnce(appContext, store)
-                    } while (gate.finishPass())
+                    result = gate.drive(reason, { policyAllows(appContext, it) }) { pass -> runOnce(appContext, store, pass) }
                 } catch (error: Throwable) {
                     gate.abort()
                     Log.e(TAG, "Refresh worker terminated", error)
@@ -154,13 +174,15 @@ internal object RefreshCoordinator {
 
     /**
      * Saving waits while a removal can still be undone: the removed files are still on disk and
-     * must not be refilled. One listener resumes normal (policy-respecting) saving once it settles.
+     * must not be refilled. The strongest request made meanwhile is remembered (so a search is not
+     * lost) and resumed, once, when the change settles; it is then re-checked against the policy.
      */
-    private fun deferForUndo(appContext: Context, trash: TrashBin) {
-        deferredForUndo.set(true)
+    private fun deferForUndo(appContext: Context, trash: TrashBin, reason: RefreshReason) {
+        synchronized(deferLock) { deferredReason = deferredReason?.let { maxOf(it, reason) } ?: reason }
         if (!undoListenerRegistered.compareAndSet(false, true)) return
         trash.addSettledListener {
-            if (deferredForUndo.compareAndSet(true, false)) requestRefresh(appContext)
+            val resume = synchronized(deferLock) { deferredReason.also { deferredReason = null } }
+            if (resume != null) requestRefresh(appContext, resume)
         }
     }
 
@@ -170,7 +192,8 @@ internal object RefreshCoordinator {
         userState: UserStateStore,
         budgetFor: (usedBytes: Long) -> CacheBudget,
         startIndex: Int = 0,
-        progress: ProgressTracker = RefreshProgress.saving
+        progress: ProgressTracker = RefreshProgress.saving,
+        allowSaving: () -> Boolean = { true }
     ): CatalogueRefresher {
         val settings = CosmosSettings(context)
         val trash = TrashBin.of(context)
@@ -187,7 +210,8 @@ internal object RefreshCoordinator {
             startIndex = startIndex,
             isStashed = { key, sha -> trash.isStashed(key, sha) || RemovalFence.removedSince(key, sha, startedAt) },
             holdAdmissions = { trash.pending() != null },
-            progress = progress
+            progress = progress,
+            allowSaving = allowSaving
         )
     }
 
@@ -195,12 +219,14 @@ internal object RefreshCoordinator {
     fun freeBytes(context: Context): Long? =
         (measure(context) as? StorageMeasurement.Known)?.availableBytes
 
-    private fun runOnce(appContext: Context, store: CatalogueStore): RefreshResult? {
+    private fun runOnce(appContext: Context, store: CatalogueStore, reason: RefreshReason): RefreshResult? {
         val settings = CosmosSettings(appContext)
         val cursor = settings.refreshCursor
         return try {
-            createRefresher(appContext, store, LibraryStorage.userState(appContext), { used -> budget(appContext, used) }, cursor)
-                .refresh().also {
+            createRefresher(
+                appContext, store, LibraryStorage.userState(appContext), { used -> budget(appContext, used) }, cursor,
+                allowSaving = { policyAllows(appContext, reason) }
+            ).refresh().also {
                     settings.refreshCursor = cursor + 1
                     Log.i(TAG, it.summary)
                 }
