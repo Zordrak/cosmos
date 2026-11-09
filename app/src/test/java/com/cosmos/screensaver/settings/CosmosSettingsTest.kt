@@ -21,6 +21,20 @@ class CosmosSettingsTest {
     }
 
     @Test
+    fun captionSizeDefaultsToStandardAndIgnoresInvalidValues() {
+        assertEquals(CaptionSize.STANDARD, CosmosSettings.DEFAULT_CAPTION_SIZE)
+        assertEquals(CaptionSize.STANDARD, parseEnumPreference(null, CosmosSettings.DEFAULT_CAPTION_SIZE))
+        assertEquals(CaptionSize.STANDARD, parseEnumPreference("HUGE", CosmosSettings.DEFAULT_CAPTION_SIZE))
+        assertEquals(CaptionSize.LARGE, parseEnumPreference("LARGE", CosmosSettings.DEFAULT_CAPTION_SIZE))
+    }
+
+    @Test
+    fun captionSizeScalesAreOrderedAndStandardIsUnity() {
+        assertEquals(listOf(0.85f, 1.0f, 1.25f, 1.5f), CaptionSize.entries.map { it.scale })
+        assertEquals(1.0f, CaptionSize.STANDARD.scale, 0f)
+    }
+
+    @Test
     fun namesPresetsAndFallsBackToCustom() {
         assertEquals(
             CollectionPreset.DEEP_SPACE,

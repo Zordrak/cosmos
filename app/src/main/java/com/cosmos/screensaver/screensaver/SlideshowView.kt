@@ -50,6 +50,13 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         if (captionMode == CaptionMode.SUBTLE) mainHandler.postDelayed(captionFadeStarter, SUBTLE_HOLD_MILLIS)
     }
 
+    var captionScale: Float = 1f
+        set(value) {
+            field = value
+            captionCache.clear()
+            requestDraw()
+        }
+
     var captionMode: CaptionMode = CaptionMode.SUBTLE
         set(value) {
             field = value
@@ -327,17 +334,17 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         var gap: Float
         var textHeight: Float
         do {
-            val textUnit = unit * scale
+            val textUnit = unit * scale * captionScale
             lines = if (detailed) {
                 listOf(
-                    layout(slide.attribution.title, textPaint(22f, textUnit, "sans-serif-medium", DETAILED_ALPHA), maxTextWidth, 2),
-                    layout(slide.attribution.credit, textPaint(17f, textUnit, "sans-serif", DETAILED_ALPHA), maxTextWidth),
-                    layout(slide.attribution.source, textPaint(15f, textUnit, "sans-serif", SUBTLE_ALPHA), maxTextWidth)
+                    layout(slide.attribution.title, textPaint(DETAILED_TITLE, textUnit, "sans-serif-medium", DETAILED_ALPHA), maxTextWidth, 2),
+                    layout(slide.attribution.credit, textPaint(DETAILED_CREDIT, textUnit, "sans-serif", DETAILED_ALPHA), maxTextWidth),
+                    layout(slide.attribution.source, textPaint(DETAILED_SOURCE, textUnit, "sans-serif", SUBTLE_ALPHA), maxTextWidth)
                 )
             } else {
                 listOf(
-                    layout(slide.attribution.title, textPaint(15f, textUnit, "sans-serif-medium", SUBTLE_ALPHA), maxTextWidth, 1),
-                    layout(slide.attribution.credit, textPaint(13f, textUnit, "sans-serif", SUBTLE_ALPHA), maxTextWidth, 1)
+                    layout(slide.attribution.title, textPaint(SUBTLE_TITLE, textUnit, "sans-serif-medium", SUBTLE_ALPHA), maxTextWidth, 1),
+                    layout(slide.attribution.credit, textPaint(SUBTLE_CREDIT, textUnit, "sans-serif", SUBTLE_ALPHA), maxTextWidth, 1)
                 )
             }
             gap = (if (detailed) 6f else 2f) * textUnit
@@ -402,6 +409,13 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         const val CAPTION_FADE_MILLIS = 2_000L
         private const val SUBTLE_ALPHA = 170
         private const val STATUS_ALPHA = 170
+
+        // Caption font sizes in 1080p units, before the user's Credit size scale.
+        private const val SUBTLE_TITLE = 18f
+        private const val SUBTLE_CREDIT = 15.5f
+        private const val DETAILED_TITLE = 24f
+        private const val DETAILED_CREDIT = 19f
+        private const val DETAILED_SOURCE = 16.5f
         private const val UNSET = -1L
         private const val DETAILED_ALPHA = 225
         private const val DETAILED_SCRIM_ALPHA = 90

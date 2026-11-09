@@ -107,6 +107,13 @@
     <string name="order_sequential_summary">The same order every time: by source, then picture title.</string>
     <string name="row_fit">Picture fit</string>
     <string name="row_credits">Credits</string>
+    <string name="row_credit_size">Credit size</string>
+    <string name="row_credit_size_summary">Makes credits smaller or larger.</string>
+    <string name="credit_size_off_reason">Credits are off</string>
+    <string name="credit_size_small">Small</string>
+    <string name="credit_size_standard">Standard</string>
+    <string name="credit_size_large">Large</string>
+    <string name="credit_size_extra_large">Extra large</string>
     <string name="row_fullscreen">See it full screen</string>
     <string name="row_fullscreen_summary">Watch the slideshow now. Press any button to stop.</string>
 
@@ -156,7 +163,7 @@
     <string name="row_reset">Reset viewing settings</string>
     <string name="row_reset_summary">Puts what to show and how it is shown back to the defaults.</string>
     <string name="reset_confirm_title">Reset viewing settings?</string>
-    <string name="reset_confirm_message">This puts the collection, sources, picture quality, free-to-reuse choice, time per picture, picture order, picture fit, credits and Play without saving back to their defaults. Your saved pictures, favourites, blocked pictures, space limit, download setting and TV start time are not changed.</string>
+    <string name="reset_confirm_message">This puts the collection, sources, picture quality, free-to-reuse choice, time per picture, picture order, picture fit, credits, credit size and Play without saving back to their defaults. Your saved pictures, favourites, blocked pictures, space limit, download setting and TV start time are not changed.</string>
     <string name="reset_confirm_button">Reset</string>
     <string name="row_about">About Cosmos</string>
     <string name="row_about_summary">Version, privacy and where pictures come from.</string>

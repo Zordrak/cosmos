@@ -63,6 +63,7 @@ class SettingsShellTest {
         s.intervalSeconds = 300
         s.displayMode = DisplayMode.FIT
         s.captionMode = CaptionMode.DETAILED
+        s.captionSize = CaptionSize.LARGE
         s.quality = QualityPreference.ANY
         s.licenceMode = LicenceMode.OPEN_LICENCE_ONLY
         s.streamOnly = true
@@ -70,6 +71,7 @@ class SettingsShellTest {
         assertEquals(300, s.intervalSeconds)
         assertEquals(DisplayMode.FIT, s.displayMode)
         assertEquals(CaptionMode.DETAILED, s.captionMode)
+        assertEquals(CaptionSize.LARGE, s.captionSize)
         assertEquals(QualityPreference.ANY, s.quality)
         assertEquals(LicenceMode.OPEN_LICENCE_ONLY, s.licenceMode)
         assertTrue(s.streamOnly)
@@ -84,6 +86,7 @@ class SettingsShellTest {
         s.intervalSeconds = 300
         s.displayMode = DisplayMode.FIT
         s.captionMode = CaptionMode.OFF
+        s.captionSize = CaptionSize.EXTRA_LARGE
         s.quality = QualityPreference.ANY
         s.licenceMode = LicenceMode.OPEN_LICENCE_ONLY
         s.streamOnly = true
@@ -97,7 +100,7 @@ class SettingsShellTest {
         assertEquals(CosmosSettings.DEFAULT_INTERVAL_SECONDS, s.intervalSeconds)
         assertEquals(CosmosSettings.DEFAULT_DISPLAY_MODE, s.displayMode)
         assertEquals(CosmosSettings.DEFAULT_CAPTION_MODE, s.captionMode)
-        assertEquals(CosmosSettings.DEFAULT_QUALITY, s.quality)
+        assertEquals(CosmosSettings.DEFAULT_CAPTION_SIZE, s.captionSize)
         assertEquals(CosmosSettings.DEFAULT_LICENCE_MODE, s.licenceMode)
         assertFalse(s.streamOnly)
         assertEquals(CosmosSettings.DEFAULT_COLLECTION, s.collection)

@@ -25,6 +25,14 @@ internal enum class DisplayMode {
 
 internal enum class CaptionMode { SUBTLE, DETAILED, OFF }
 
+/** A multiplier applied to every credit font size. */
+internal enum class CaptionSize(val scale: Float) {
+    SMALL(0.85f),
+    STANDARD(1.0f),
+    LARGE(1.25f),
+    EXTRA_LARGE(1.5f)
+}
+
 /** How the next picture is chosen. */
 internal enum class OrderMode {
     /** Recency-aware: varies pictures, favourites and "More" sources recur sooner, new pictures arrive soon. */

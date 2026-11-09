@@ -27,6 +27,10 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         get() = preferences.enumValue(KEY_CAPTION_MODE, DEFAULT_CAPTION_MODE)
         set(value) = preferences.edit().putString(KEY_CAPTION_MODE, value.name).apply()
 
+    var captionSize: CaptionSize
+        get() = preferences.enumValue(KEY_CAPTION_SIZE, DEFAULT_CAPTION_SIZE)
+        set(value) = preferences.edit().putString(KEY_CAPTION_SIZE, value.name).apply()
+
     var quality: QualityPreference
         get() = preferences.enumValue(KEY_QUALITY, DEFAULT_QUALITY)
         set(value) = preferences.edit().putString(KEY_QUALITY, value.name).apply()
@@ -98,6 +102,8 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         private const val KEY_INTERVAL = "interval_seconds"
         private const val KEY_DISPLAY_MODE = "display_mode"
         private const val KEY_CAPTION_MODE = "caption_mode"
+        private const val KEY_CAPTION_SIZE = "caption_size"
+        val DEFAULT_CAPTION_SIZE = CaptionSize.STANDARD
         private const val KEY_QUALITY = "quality"
         private const val KEY_LICENCE_MODE = "licence_mode"
         private const val KEY_STREAM_ONLY = "stream_only"
@@ -116,9 +122,9 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
          * (order, source weights, credit size) MUST add its key here so Reset covers it.
          */
         private val VIEWING_KEYS = listOf(
-            KEY_INTERVAL, KEY_DISPLAY_MODE, KEY_CAPTION_MODE,             KEY_QUALITY, KEY_LICENCE_MODE, KEY_STREAM_ONLY,
-                        KEY_ORDER_MODE
-                    )
+            KEY_INTERVAL, KEY_DISPLAY_MODE, KEY_CAPTION_MODE, KEY_CAPTION_SIZE, KEY_QUALITY, KEY_LICENCE_MODE,
+            KEY_STREAM_ONLY, KEY_ORDER_MODE
+        )
 
         fun collectionFor(enabled: Set<AssetProvider>): CollectionPreset =
             CollectionPreset.entries.firstOrNull { it.providers == enabled } ?: CollectionPreset.CUSTOM

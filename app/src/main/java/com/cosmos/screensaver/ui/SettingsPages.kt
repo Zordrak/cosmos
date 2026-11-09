@@ -11,6 +11,7 @@ import android.widget.TextView
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.settings.CaptionMode
+import com.cosmos.screensaver.settings.CaptionSize
 import com.cosmos.screensaver.settings.OrderMode
 import com.cosmos.screensaver.settings.COLLECTION_CHOICES
 import com.cosmos.screensaver.settings.COLLECTION_CYCLE
@@ -310,6 +311,19 @@ internal class SettingsPages(private val env: PageEnv) {
             onChosen = { settings.captionMode = it },
             summary = text::captionModeSummary,
             valueLabel = text::captionMode
+        )
+        ui.choice(
+            "credit_size", s(R.string.row_credit_size),
+            options = {
+                CaptionSize.entries.map {
+                    PickerOption(it, text.captionSize(it), recommended = it == CosmosSettings.DEFAULT_CAPTION_SIZE)
+                }
+            },
+            current = { settings.captionSize },
+            onChosen = { settings.captionSize = it },
+            summary = { s(R.string.row_credit_size_summary) },
+            valueLabel = text::captionSize,
+            enabledReason = { if (settings.captionMode == CaptionMode.OFF) s(R.string.credit_size_off_reason) else null }
         )
         ui.action("fullscreen", s(R.string.row_fullscreen), { s(R.string.row_fullscreen_summary) }) { env.startPreview() }
         return PageContent(ui.rows)

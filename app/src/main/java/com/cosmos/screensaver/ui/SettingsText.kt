@@ -3,6 +3,7 @@ package com.cosmos.screensaver.ui
 import android.content.Context
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.settings.CaptionMode
+import com.cosmos.screensaver.settings.CaptionSize
 import com.cosmos.screensaver.settings.OrderMode
 import com.cosmos.screensaver.settings.CollectionPreset
 import com.cosmos.screensaver.settings.DisplayMode
@@ -104,6 +105,15 @@ internal class SettingsText(private val context: Context) : SummaryLabels {
             CaptionMode.SUBTLE -> R.string.credits_subtle_summary
             CaptionMode.DETAILED -> R.string.credits_detailed_summary
             CaptionMode.OFF -> R.string.credits_off_summary
+        }
+    )
+
+    fun captionSize(size: CaptionSize) = s(
+        when (size) {
+            CaptionSize.SMALL -> R.string.credit_size_small
+            CaptionSize.STANDARD -> R.string.credit_size_standard
+            CaptionSize.LARGE -> R.string.credit_size_large
+            CaptionSize.EXTRA_LARGE -> R.string.credit_size_extra_large
         }
     )
 

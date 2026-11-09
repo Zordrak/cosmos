@@ -65,6 +65,7 @@ internal class SlideshowController(
         shownAny = false
         pictureOnScreen = false
         view.captionMode = settings.captionMode
+        view.captionScale = settings.captionSize.scale
         view.showMessage(null)
         // Armed before any decoding or network work so a slow start is never silent for long.
         startedAtMillis = SystemClock.uptimeMillis()
