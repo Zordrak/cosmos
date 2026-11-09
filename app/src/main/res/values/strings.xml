@@ -96,6 +96,10 @@
 
     <!-- Slideshow -->
     <string name="slideshow_left_body">Changes apply straight away. Choose See it full screen to check them on the whole TV.</string>
+    <string name="preview_description">Preview of the slideshow using a sample picture</string>
+    <string name="preview_sample_title">Cosmos sample image</string>
+    <string name="preview_sample_credit">Created by Cosmos</string>
+    <string name="preview_sample_source">Sample used for this preview</string>
     <string name="row_interval">Time per picture</string>
     <string name="row_interval_summary">How long each picture stays on screen.</string>
     <string name="row_order">Order</string>

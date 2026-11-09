@@ -254,7 +254,22 @@ internal class SettingsPages(private val env: PageEnv) {
 
     private fun slideshow(left: LinearLayout): PageContent {
         val ui = SettingsUi(activity)
-        subPageLeft(ui, left, R.string.home_slideshow, R.string.slideshow_left_body)
+        left.addView(ui.text(s(R.string.home_slideshow), SettingsType.PAGE_TITLE + 6f, Color.WHITE, bold = true))
+        val preview = PreviewPane(activity)
+        left.addView(preview, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ui.dp(16)
+        })
+        val fitLine = ui.text("", SettingsType.LEFT_PANE, SettingsColors.ACCENT).apply { setPadding(0, ui.dp(12), 0, 0) }
+        left.addView(fitLine)
+        left.addView(ui.text(s(R.string.slideshow_left_body), SettingsType.LEFT_PANE, SettingsColors.SECONDARY).apply {
+            setPadding(0, ui.dp(8), 0, 0)
+        })
+        val updatePreview = {
+            preview.update(settings.displayMode, settings.captionMode, settings.captionSize.scale)
+            val summary = text.displayModeSummary(settings.displayMode)
+            if (fitLine.text.toString() != summary) fitLine.text = summary
+        }
+        ui.onChanged = updatePreview
         ui.choice(
             "interval", s(R.string.row_interval),
             options = {
@@ -326,7 +341,7 @@ internal class SettingsPages(private val env: PageEnv) {
             enabledReason = { if (settings.captionMode == CaptionMode.OFF) s(R.string.credit_size_off_reason) else null }
         )
         ui.action("fullscreen", s(R.string.row_fullscreen), { s(R.string.row_fullscreen_summary) }) { env.startPreview() }
-        return PageContent(ui.rows)
+        return PageContent(ui.rows, updatePreview)
     }
 
     private fun savedPictures(left: LinearLayout): PageContent {

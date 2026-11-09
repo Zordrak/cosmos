@@ -56,6 +56,9 @@ internal class SettingsUi(private val activity: Activity) {
     private val registered = mutableListOf<SettingsRow>()
     val rows: List<SettingsRow> get() = registered
 
+    /** Runs after any row of this page changed a value, so a left pane can follow immediately. */
+    var onChanged: (() -> Unit)? = null
+
     fun dp(value: Int) = (value * density).toInt()
 
     fun text(value: String, size: Float, color: Int, bold: Boolean = false) = TextView(activity).apply {
@@ -138,7 +141,10 @@ internal class SettingsUi(private val activity: Activity) {
         )
     }
 
-    private fun updateAll() = registered.forEach { it.update() }
+    private fun updateAll() {
+        registered.forEach { it.update() }
+        onChanged?.invoke()
+    }
 
     private fun row(
         id: String,
