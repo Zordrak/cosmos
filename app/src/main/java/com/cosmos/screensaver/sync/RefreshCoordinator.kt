@@ -32,6 +32,8 @@ internal object RefreshCoordinator {
     private const val TAG = "CosmosRefresh"
     private const val STALE_AFTER_MILLIS = 20L * 60 * 60 * 1000
     private const val EMPTY_RETRY_AFTER_MILLIS = 10L * 60 * 1000
+    /** A pass that stopped with room left because a source could not be read is retried this soon. */
+    private const val INTERRUPTED_RETRY_AFTER_MILLIS = 30L * 60 * 1000
     private const val MIN_USEFUL_BUDGET_BYTES = 50L * 1024 * 1024
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
@@ -116,6 +118,7 @@ internal object RefreshCoordinator {
         val sinceAttempt = now - catalogue.lastAttemptAtEpochMillis
         if (sinceAttempt < 0) return true
         if (catalogue.selectionFingerprint != CatalogueRefresher.fingerprintOf(selection, enabledProviders)) return true
+        if (catalogue.moreToFetch && sinceAttempt >= INTERRUPTED_RETRY_AFTER_MILLIS) return true
         val showable = SelectionSnapshot.build(catalogue.entries, selection, enabledProviders, state).eligible
         return if (showable.isEmpty()) {
             sinceAttempt >= EMPTY_RETRY_AFTER_MILLIS

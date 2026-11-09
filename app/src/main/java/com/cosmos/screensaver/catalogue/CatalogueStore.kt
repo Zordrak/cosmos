@@ -141,6 +141,7 @@ internal object CatalogueJson {
         root.put("lastSuccessAt", catalogue.lastSuccessAtEpochMillis)
         root.put("lastSummary", catalogue.lastSummary)
         root.put("selectionFingerprint", catalogue.selectionFingerprint)
+        if (catalogue.moreToFetch) root.put("moreToFetch", true)
         root.put("entries", JSONArray().apply { catalogue.entries.forEach { put(encodeEntry(it)) } })
         root.put("rejections", JSONObject().apply {
             catalogue.rejections.forEach { (key, value) ->
@@ -175,7 +176,8 @@ internal object CatalogueJson {
             lastAttemptAtEpochMillis = root.optLong("lastAttemptAt"),
             lastSuccessAtEpochMillis = root.optLong("lastSuccessAt"),
             lastSummary = root.optString("lastSummary"),
-            selectionFingerprint = root.optString("selectionFingerprint")
+            selectionFingerprint = root.optString("selectionFingerprint"),
+            moreToFetch = root.optBoolean("moreToFetch", false)
         )
     }
 

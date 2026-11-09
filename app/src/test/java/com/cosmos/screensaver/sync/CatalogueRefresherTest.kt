@@ -877,6 +877,22 @@ class CatalogueRefresherTest {
     }
 
     @Test
+    fun aPassCutShortByTimeoutsWithRoomLeftAsksToBeRetriedSoon() {
+        publish(hubble, "heic9901a")
+        fetcher.offline = true
+
+        refresher(selection = personal).refresh()
+        assertTrue(store.load().moreToFetch)
+
+        fetcher.offline = false
+        now += 1000
+        refresher(selection = personal).refresh()
+
+        assertFalse(store.load().moreToFetch)
+        assertEquals(setOf("heic9901a"), savedKeys())
+    }
+
+    @Test
     fun openLicenceModeClearsNasaWorksUnlessMarkedCopyrighted() {
         val nasa = StubAdapter(AssetProvider.NASA, "n1" to false, "n2" to true)
         fetcher.images[nasa.url("n1")] = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1)

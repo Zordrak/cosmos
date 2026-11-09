@@ -60,5 +60,10 @@ internal data class Catalogue(
     val lastSuccessAtEpochMillis: Long = 0L,
     val lastSummary: String = "",
     /** [com.cosmos.screensaver.settings.ImageSelection.fingerprint] used by the last refresh. */
-    val selectionFingerprint: String = ""
+    val selectionFingerprint: String = "",
+    /**
+     * The last refresh stopped with room left while a source could not be read (a timeout, say),
+     * so another look is worth making soon rather than after the usual day.
+     */
+    val moreToFetch: Boolean = false
 )

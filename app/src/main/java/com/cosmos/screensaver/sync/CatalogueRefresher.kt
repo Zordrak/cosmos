@@ -118,7 +118,7 @@ internal class CatalogueRefresher(
          * A source whose leads keep failing to qualify this many times in a row is left alone for
          * the rest of the pass: it has nothing more worth saving right now. Not a cap on saving.
          */
-        val maxConsecutiveMisses: Int = 150,
+        val maxConsecutiveMisses: Int = 500,
         /** A source whose downloads keep failing (unreachable, for instance) is left alone for the pass. */
         val maxConsecutiveFailures: Int = 6,
         val minBudgetBytes: Long = 50L * 1024 * 1024,
@@ -234,6 +234,7 @@ internal class CatalogueRefresher(
         var anySourceReached = false
         var space = SpaceStatus()
         var stoppedByPolicy = false
+        var interrupted = false
 
         withdrawnCount += LibraryMaintenance.screenLocal(store, userState).removed
 
@@ -304,6 +305,7 @@ internal class CatalogueRefresher(
                     override fun fits(width: Int, height: Int) = required?.accepts(width, height) ?: true
                 }
                 val discovery = adapter.discover(fetcher, random, leadFilter)
+                if (discovery.incomplete) interrupted = true
                 if (turn.discoveries++ == 0) {
                     errors += discovery.errors
                     discovery.errors.lastOrNull()?.let { run?.error(ProgressErrorKind.DISCOVERY, it, adapter.label) }
@@ -386,6 +388,7 @@ internal class CatalogueRefresher(
                             errors += "${lead.id}: ${outcome.reason}"
                             run?.error(ProgressErrorKind.DOWNLOAD, outcome.reason, adapter.label)
                             if (++turn.failures >= limits.maxConsecutiveFailures) {
+                                interrupted = true
                                 turn.finished = true
                                 return true
                             }
@@ -427,7 +430,9 @@ internal class CatalogueRefresher(
                 lastSuccessAtEpochMillis = if (anySourceReached) finishedAt else current.lastSuccessAtEpochMillis,
                 lastSummary = if (stoppedByPolicy) current.lastSummary else partial.copy(total = available).summary,
                 // A pass cut short by the download mode is not a completed look, so the selection stays due.
-                selectionFingerprint = if (stoppedByPolicy) current.selectionFingerprint else fingerprint
+                selectionFingerprint = if (stoppedByPolicy) current.selectionFingerprint else fingerprint,
+                // Room left but a source could not be read: worth looking again soon, not in a day.
+                moreToFetch = if (stoppedByPolicy) current.moreToFetch else interrupted && !space.any
             )
         }
         LibraryMaintenance.deleteOrphanFiles(store, clock())

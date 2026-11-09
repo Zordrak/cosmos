@@ -158,6 +158,44 @@ class DeepCrawlTest {
     }
 
     @Test
+    fun aTimedOutHeadlineListingStillLetsTheArchiveBeWalked() {
+        val fake = object : Fetcher {
+            override fun fetchText(url: String, maxBytes: Int): String = when (url) {
+                hubble.categoryUrl("galaxies", 1) -> listing(hubble, "galaxies", 1, Triple("heic0001a", 4000, 3000))
+                in hubble.discoveryUrls -> throw java.net.SocketTimeoutException("timeout")
+                else -> throw IOException("HTTP 404 from $url")
+            }
+            override fun fetchPrefix(url: String, maxBytes: Int): ByteArray = throw IOException("unused")
+            override fun download(url: String, destination: File, maxBytes: Long): Download = throw IOException("unused")
+        }
+
+        val discovery = DjangoplicityAdapter(hubble, ListingCache(null)) { 0L }.discover(fake, Random(1), filter())
+
+        assertTrue(discovery.reached)
+        assertEquals(listOf("heic0001a"), discovery.leads.map { it.id })
+        assertTrue(discovery.errors.any { it.contains("listing unavailable") })
+        assertTrue(discovery.errors.none { it.contains("archive page") })
+    }
+
+    @Test
+    fun anUnreachableArchivePageIsReportedButAMissingOneIsNot() {
+        val fake = object : Fetcher {
+            override fun fetchText(url: String, maxBytes: Int): String = when (url) {
+                hubble.discoveryUrls[0] -> "<rss></rss>"
+                hubble.categoryUrl("galaxies", 1) -> throw java.net.SocketTimeoutException("timeout")
+                else -> throw IOException("HTTP 404 from $url")
+            }
+            override fun fetchPrefix(url: String, maxBytes: Int): ByteArray = throw IOException("unused")
+            override fun download(url: String, destination: File, maxBytes: Long): Download = throw IOException("unused")
+        }
+
+        val discovery = DjangoplicityAdapter(hubble, ListingCache(null)) { 0L }.discover(fake, Random(1), filter())
+
+        assertEquals(listOf("ESA/Hubble archive page unavailable (timeout)"), discovery.errors.filter { it.contains("archive page") })
+        assertTrue(discovery.incomplete)
+    }
+
+    @Test
     fun aDamagedCacheFileIsIgnored() {
         val file = File(folder.root, "listings.json")
         file.writeText("{not json")

@@ -21,6 +21,9 @@ internal class DjangoplicityAdapter(
     /** The headline listings' pictures, read once per adapter (one refresh pass) and replayed after. */
     private var headline: List<String>? = null
 
+    /** The first archive page that could not be read during the current discovery, if any. */
+    private var crawlProblem: String? = null
+
     /**
      * The headline listings come first. The archive's category pages are then walked in rotation
      * a page at a time, skipping every picture [filter] has already dealt with, so the crawl always
@@ -31,6 +34,7 @@ internal class DjangoplicityAdapter(
     override fun discover(fetcher: Fetcher, random: Random, filter: LeadFilter): Discovery {
         val errors = mutableListOf<String>()
         var reached = headline != null
+        var incomplete = false
         val seen = mutableSetOf<String>()
         val fresh = mutableListOf<String>()
         val retired = mutableListOf<String>()
@@ -44,22 +48,33 @@ internal class DjangoplicityAdapter(
         }
         val known = headline ?: run {
             val ids = mutableListOf<String>()
+            var any = false
             for (url in site.discoveryUrls) {
                 try {
                     ids += DjangoplicityParser.discoveredIds(fetcher.fetchText(url), site)
-                    reached = true
+                    any = true
                 } catch (error: IOException) {
                     errors += "${site.label} listing unavailable (${error.describe()})"
+                    if (!error.isNotThere()) incomplete = true
                 }
             }
-            if (reached) headline = ids
+            if (any) reached = true
+            // Not retried within this pass, even after a failure: a slow feed must not cost every rediscovery.
+            headline = ids
             ids
         }
         known.forEach(::offer)
-        if (reached) crawlCategories(fetcher, filter, ::offer) { fresh.size }
+        // The archive is walked even when a headline listing could not be read: one slow feed
+        // must not hide the whole site for a pass.
+        crawlProblem = null
+        if (crawlCategories(fetcher, filter, ::offer) { fresh.size }) reached = true
+        crawlProblem?.let {
+            errors += it
+            incomplete = true
+        }
         listings.flush()
         val ids = retired + fresh
-        return Discovery(ids.map { id -> Lead(id) { resolve(fetcher, id) } }, errors, reached)
+        return Discovery(ids.map { id -> Lead(id) { resolve(fetcher, id) } }, errors, reached, incomplete)
     }
 
     private fun crawlCategories(
@@ -67,10 +82,11 @@ internal class DjangoplicityAdapter(
         filter: LeadFilter,
         offer: (String) -> Unit,
         freshCount: () -> Int
-    ) {
+    ): Boolean {
         val lastPage = mutableMapOf<String, Int>()
         val finished = mutableSetOf<String>()
         var fetches = 0
+        var walkedAny = false
         for (depth in 1..ListingCache.MAX_PAGES) {
             var walked = false
             for (category in site.categories) {
@@ -93,6 +109,9 @@ internal class DjangoplicityAdapter(
                         listings.put(key, page)
                     } catch (error: IOException) {
                         // A page that is missing or unreachable ends this category for now.
+                        if (crawlProblem == null && !error.isNotThere()) {
+                            crawlProblem = "${site.label} archive page unavailable (${error.describe()})"
+                        }
                     }
                 }
                 if (page == null || page.items.isEmpty()) {
@@ -101,6 +120,7 @@ internal class DjangoplicityAdapter(
                 }
                 if (depth == 1) lastPage[category] = page.lastPage
                 walked = true
+                walkedAny = true
                 for (item in page.items) {
                     if (ImageSelection.suitableAspect(item.width, item.height) && filter.fits(item.width, item.height)) {
                         offer(item.id)
@@ -109,6 +129,7 @@ internal class DjangoplicityAdapter(
             }
             if (!walked) break
         }
+        return walkedAny
     }
 
     private companion object {

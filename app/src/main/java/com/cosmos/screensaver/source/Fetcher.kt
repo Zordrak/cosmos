@@ -36,6 +36,15 @@ internal fun interface DownloadObserver {
 
 internal class EndpointNotApprovedException(url: String) : IOException("Endpoint not approved: $url")
 
+/** The server answered with an error status rather than the document. */
+internal class HttpStatusException(val code: Int, url: String) : IOException("HTTP $code from $url")
+
+/** The server says the resource is not there (4xx): not worth retrying soon, unlike a timeout or 5xx. */
+internal fun IOException.isNotThere(): Boolean =
+    (this is HttpStatusException && code in 400..499) || NOT_THERE.containsMatchIn(message.orEmpty())
+
+private val NOT_THERE = Regex("^HTTP 4\\d\\d\\b")
+
 /** The resource is larger than Cosmos is willing to download; retrying will not help. */
 internal class ResourceTooLargeException(message: String) : IOException(message)
 
@@ -130,7 +139,7 @@ internal class HttpsFetcher(
                 }
                 else -> {
                     connection.disconnect()
-                    throw IOException("HTTP $code from $url")
+                    throw HttpStatusException(code, url)
                 }
             }
         }

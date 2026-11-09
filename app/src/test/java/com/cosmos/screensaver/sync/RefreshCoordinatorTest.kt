@@ -54,6 +54,15 @@ class RefreshCoordinatorTest {
     }
 
     @Test
+    fun retriesWithinHalfAnHourWhenTheLastPassWasCutShortWithRoomLeft() {
+        val interrupted = populated.copy(moreToFetch = true)
+        val start = populated.lastAttemptAtEpochMillis
+        assertFalse(RefreshCoordinator.isStale(interrupted, start + 29 * 60 * 1000, selection, all))
+        assertTrue(RefreshCoordinator.isStale(interrupted, start + 30 * 60 * 1000, selection, all))
+        assertFalse(RefreshCoordinator.isStale(populated, start + 30 * 60 * 1000, selection, all))
+    }
+
+    @Test
     fun refreshesImmediatelyWhenImageSettingsChange() {
         val changed = ImageSelection(LicenceMode.OPEN_LICENCE_ONLY, QualityPreference.FHD_OR_BETTER)
         assertTrue(RefreshCoordinator.isStale(populated, 1 * hour, changed, all))

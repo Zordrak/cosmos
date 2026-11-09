@@ -39,7 +39,13 @@ internal sealed interface CandidateResult {
 /** An image found in a listing. [resolve] does whatever further fetching is needed to describe it. */
 internal class Lead(val id: String, val resolve: () -> CandidateResult)
 
-internal data class Discovery(val leads: List<Lead>, val errors: List<String>, val reached: Boolean)
+internal data class Discovery(
+    val leads: List<Lead>,
+    val errors: List<String>,
+    val reached: Boolean,
+    /** Part of the source could not be read (a timeout or server error), so there may be more to find soon. */
+    val incomplete: Boolean = false
+)
 
 /** How the library already regards a picture a listing names. */
 internal enum class LeadStatus {
