@@ -23,10 +23,10 @@ class CosmosSettingsTest {
     }
 
     @Test
-    fun captionSizeDefaultsToStandardAndIgnoresInvalidValues() {
-        assertEquals(CaptionSize.STANDARD, CosmosSettings.DEFAULT_CAPTION_SIZE)
-        assertEquals(CaptionSize.STANDARD, parseEnumPreference(null, CosmosSettings.DEFAULT_CAPTION_SIZE))
-        assertEquals(CaptionSize.STANDARD, parseEnumPreference("HUGE", CosmosSettings.DEFAULT_CAPTION_SIZE))
+    fun captionSizeDefaultsToMediumAndIgnoresInvalidValues() {
+        assertEquals(CaptionSize.MEDIUM, CosmosSettings.DEFAULT_CAPTION_SIZE)
+        assertEquals(CaptionSize.MEDIUM, parseEnumPreference(null, CosmosSettings.DEFAULT_CAPTION_SIZE))
+        assertEquals(CaptionSize.MEDIUM, parseEnumPreference("STANDARD", CosmosSettings.DEFAULT_CAPTION_SIZE))
         assertEquals(CaptionSize.LARGE, parseEnumPreference("LARGE", CosmosSettings.DEFAULT_CAPTION_SIZE))
     }
 
@@ -82,9 +82,10 @@ class CosmosSettingsTest {
     }
 
     @Test
-    fun captionSizeScalesAreOrderedAndStandardIsUnity() {
-        assertEquals(listOf(0.85f, 1.0f, 1.25f, 1.5f), CaptionSize.entries.map { it.scale })
-        assertEquals(1.0f, CaptionSize.STANDARD.scale, 0f)
+    fun captionSizeHasFiveWidelySpacedStepsWithTheOldLargeAsMedium() {
+        assertEquals(listOf(0.75f, 0.95f, 1.25f, 1.6f, 2.1f), CaptionSize.entries.map { it.scale })
+        assertEquals(1.25f, CaptionSize.MEDIUM.scale, 0f)
+        CaptionSize.entries.zipWithNext().forEach { (a, b) -> assertTrue(b.scale / a.scale >= 1.25f) }
     }
 
     @Test

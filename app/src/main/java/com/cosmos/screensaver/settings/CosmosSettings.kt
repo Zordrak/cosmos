@@ -147,8 +147,9 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         private const val KEY_INTERVAL = "interval_seconds"
         private const val KEY_DISPLAY_MODE = "display_mode"
         private const val KEY_CAPTION_MODE = "caption_mode"
-        private const val KEY_CAPTION_SIZE = "caption_size"
-        val DEFAULT_CAPTION_SIZE = CaptionSize.STANDARD
+        // v2: five steps replaced the original four; earlier choices fall back to the new default.
+        private const val KEY_CAPTION_SIZE = "caption_size_v2"
+        val DEFAULT_CAPTION_SIZE = CaptionSize.MEDIUM
         private const val KEY_QUALITY = "quality"
         private const val KEY_LICENCE_MODE = "licence_mode"
         private const val KEY_STREAM_ONLY = "stream_only"

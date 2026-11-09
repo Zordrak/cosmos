@@ -138,8 +138,9 @@
     <string name="row_credit_size">Credit size</string>
     <string name="row_credit_size_summary">Makes credits smaller or larger.</string>
     <string name="credit_size_off_reason">Credits are off</string>
+    <string name="credit_size_extra_small">Extra small</string>
     <string name="credit_size_small">Small</string>
-    <string name="credit_size_standard">Standard</string>
+    <string name="credit_size_medium">Medium</string>
     <string name="credit_size_large">Large</string>
     <string name="credit_size_extra_large">Extra large</string>
     <string name="row_fullscreen">See it full screen</string>

@@ -89,7 +89,7 @@ The TV's own inactivity timer decides when the screensaver starts. Cosmos can re
   - **Subtle** (default): the title and credit in translucent text with a soft shadow and no panel.
   - **Detailed:** title, credit, source and licence on a faint panel.
   - **Off:** no caption.
-  Credit size is Small, Standard, Large or Extra large. Captions alternate corners to reduce burn-in risk.
+  Credit size is Extra small, Small, Medium (default), Large or Extra large, roughly 30% apart (0.75× to 2.1×). Captions alternate corners to reduce burn-in risk.
 - **Calm start:** the dream's window and the surface are black from the first frame and the first real picture fades in. There is no placeholder artwork. After 2.5 seconds of genuine waiting a small dim status line may appear.
 ## Privacy and network behaviour
 

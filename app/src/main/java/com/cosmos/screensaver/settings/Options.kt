@@ -25,12 +25,16 @@ internal enum class DisplayMode {
 
 internal enum class CaptionMode { SUBTLE, DETAILED, OFF }
 
-/** A multiplier applied to every credit font size. */
+/**
+ * A multiplier applied to every credit font size. Steps are roughly 30% apart so each one is a
+ * visible change from an armchair; Medium (the default) was the old "Large".
+ */
 internal enum class CaptionSize(val scale: Float) {
-    SMALL(0.85f),
-    STANDARD(1.0f),
-    LARGE(1.25f),
-    EXTRA_LARGE(1.5f)
+    EXTRA_SMALL(0.75f),
+    SMALL(0.95f),
+    MEDIUM(1.25f),
+    LARGE(1.6f),
+    EXTRA_LARGE(2.1f)
 }
 
 /** How the next picture is chosen. */

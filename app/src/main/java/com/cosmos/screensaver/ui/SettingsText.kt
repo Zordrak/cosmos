@@ -114,8 +114,9 @@ internal class SettingsText(private val context: Context) : SummaryLabels {
 
     fun captionSize(size: CaptionSize) = s(
         when (size) {
+            CaptionSize.EXTRA_SMALL -> R.string.credit_size_extra_small
             CaptionSize.SMALL -> R.string.credit_size_small
-            CaptionSize.STANDARD -> R.string.credit_size_standard
+            CaptionSize.MEDIUM -> R.string.credit_size_medium
             CaptionSize.LARGE -> R.string.credit_size_large
             CaptionSize.EXTRA_LARGE -> R.string.credit_size_extra_large
         }
