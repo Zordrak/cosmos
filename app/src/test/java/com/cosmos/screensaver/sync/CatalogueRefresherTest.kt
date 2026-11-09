@@ -17,6 +17,7 @@ import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.source.DjangoplicityAdapter
 import com.cosmos.screensaver.source.Download
 import com.cosmos.screensaver.source.DjangoplicitySite
+import com.cosmos.screensaver.source.DownloadObserver
 import com.cosmos.screensaver.source.Fetcher
 import com.cosmos.screensaver.source.Fixtures
 import com.cosmos.screensaver.source.Rendition
@@ -120,6 +121,82 @@ class CatalogueRefresherTest {
         assertTrue(store.imageFile(entry).isFile)
         assertTrue(store.load().entries.isEmpty())
         assertEquals(0L, store.load().lastAttemptAtEpochMillis)
+    }
+
+    @Test
+    fun refreshReportsProgressThatMatchesTheResult() {
+        publish(hubble, "heic9901a")
+        publish(webb, "weic9901a")
+        val tracker = ProgressTracker(ProgressKind.SAVING, clock = { 0L }, wallClock = { now })
+        fetcher.observer = tracker.observer
+        fetcher.snapshotSource = tracker::snapshot
+
+        val result = refresher(progress = tracker).refresh()
+
+        val last = tracker.snapshot()
+        assertEquals(ProgressPhase.IDLE, last.phase)
+        assertEquals(1L, last.runId)
+        assertEquals(result.admitted, last.admitted)
+        assertEquals(result.rejected, last.skipped)
+        assertEquals(now, last.startedAtEpochMillis)
+        assertTrue(last.endedAtEpochMillis > 0L)
+        assertEquals(2, fetcher.phasesDuringDownload.size)
+        fetcher.phasesDuringDownload.forEach {
+            assertEquals(ProgressPhase.DOWNLOADING, it.phase)
+            assertTrue(it.title!!.isNotBlank())
+            assertTrue(it.source!!.isNotBlank())
+            assertEquals(0L, it.doneBytes)
+            assertTrue(it.totalBytes > 0)
+        }
+    }
+
+    @Test
+    fun aFailedRefreshEndsItsRunAndKeepsTheError() {
+        val tracker = ProgressTracker(ProgressKind.SAVING, clock = { 0L })
+        val broken = object : SourceAdapter {
+            override val provider = AssetProvider.NASA
+            override val label = "Broken"
+            override fun discover(fetcher: Fetcher, random: Random): Discovery = throw IllegalStateException("boom")
+        }
+
+        val failure = runCatching { refresher(sites = emptySet(), extraAdapters = listOf(broken), progress = tracker).refresh() }
+
+        assertTrue(failure.isFailure)
+        val last = tracker.snapshot()
+        assertEquals(ProgressPhase.IDLE, last.phase)
+        assertEquals(ProgressErrorKind.UNEXPECTED, last.error!!.kind)
+        assertEquals("boom", last.error!!.message)
+    }
+
+    @Test
+    fun discoveryProblemsAreRecordedAgainstTheirSource() {
+        val tracker = ProgressTracker(ProgressKind.SAVING, clock = { 0L })
+        fetcher.offline = true
+
+        refresher(sites = setOf(hubble), progress = tracker).refresh()
+
+        val error = tracker.snapshot().error!!
+        assertEquals(ProgressErrorKind.DISCOVERY, error.kind)
+        assertEquals(hubble.label, error.source)
+    }
+
+    @Test
+    fun streamingReportsToItsOwnSlotWithoutCountingSavedPictures() {
+        publish(hubble, "heic9901a")
+        val saving = ProgressTracker(ProgressKind.SAVING, clock = { 0L })
+        val streaming = ProgressTracker(ProgressKind.STREAMING, clock = { 0L })
+        fetcher.observer = streaming.observer
+        fetcher.snapshotSource = streaming::snapshot
+
+        refresher(selection = personal, progress = streaming).streamNext(StreamQueue(), OrderMode.FAIR, ::normal)!!
+
+        assertEquals(ProgressPhase.IDLE, streaming.snapshot().phase)
+        assertEquals(ProgressKind.STREAMING, streaming.snapshot().kind)
+        assertEquals(0, streaming.snapshot().admitted)
+        assertEquals(1, fetcher.phasesDuringDownload.size)
+        assertEquals(ProgressPhase.DOWNLOADING, fetcher.phasesDuringDownload.single().phase)
+        assertEquals(0L, saving.snapshot().runId)
+        assertTrue(store.load().entries.isEmpty())
     }
 
     @Test
@@ -1041,7 +1118,8 @@ class CatalogueRefresherTest {
         startIndex: Int = 0,
         extraAdapters: List<SourceAdapter> = emptyList(),
         isStashed: (String, String) -> Boolean = { _, _ -> false },
-        holdAdmissions: () -> Boolean = { false }
+        holdAdmissions: () -> Boolean = { false },
+        progress: ProgressTracker? = null
     ) = CatalogueRefresher(
         fetcher = fetcher,
         store = store,
@@ -1056,7 +1134,8 @@ class CatalogueRefresherTest {
         budgetFor = cacheBudget ?: { used -> CacheBudget.fixed(budgetFor(used)) },
         startIndex = startIndex,
         isStashed = isStashed,
-        holdAdmissions = holdAdmissions
+        holdAdmissions = holdAdmissions,
+        progress = progress
     )
 
     private fun publish(
@@ -1101,6 +1180,9 @@ class CatalogueRefresherTest {
         val requests = mutableListOf<String>()
         val maxBytesSeen = mutableListOf<Long>()
         var offline = false
+        var observer: DownloadObserver? = null
+        val phasesDuringDownload = mutableListOf<ProgressSnapshot>()
+        var snapshotSource: (() -> ProgressSnapshot)? = null
 
         override fun fetchText(url: String, maxBytes: Int): String {
             requests += url
@@ -1120,7 +1202,11 @@ class CatalogueRefresherTest {
             if (url in tooLarge) throw ResourceTooLargeException("too large")
             val bytes = images[url] ?: throw IOException("HTTP 404 from $url")
             destination.writeBytes(bytes)
-            return Download(sha256Of(destination), sizes[url] ?: bytes.size.toLong())
+            val size = sizes[url] ?: bytes.size.toLong()
+            observer?.onProgress(0L, size, false)
+            snapshotSource?.let { phasesDuringDownload += it() }
+            observer?.onProgress(size, size, true)
+            return Download(sha256Of(destination), size)
         }
     }
 }

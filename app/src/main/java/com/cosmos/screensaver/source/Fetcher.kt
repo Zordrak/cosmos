@@ -29,6 +29,11 @@ internal interface Fetcher {
     }
 }
 
+/** Hears about a download's progress. [totalBytes] is -1 when the server gave no usable length. */
+internal fun interface DownloadObserver {
+    fun onProgress(doneBytes: Long, totalBytes: Long, finished: Boolean)
+}
+
 internal class EndpointNotApprovedException(url: String) : IOException("Endpoint not approved: $url")
 
 /** The resource is larger than Cosmos is willing to download; retrying will not help. */
@@ -38,7 +43,10 @@ internal class ResourceTooLargeException(message: String) : IOException(message)
  * HTTPS-only fetcher restricted to [ApprovedEndpoints]. Redirects are followed manually so that
  * every hop is re-checked against the allow-list.
  */
-internal class HttpsFetcher(private val userAgent: String) : Fetcher {
+internal class HttpsFetcher(
+    private val userAgent: String,
+    private val observer: DownloadObserver? = null
+) : Fetcher {
     override fun fetchText(url: String, maxBytes: Int): String {
         val connection = open(url)
         try {
@@ -74,6 +82,8 @@ internal class HttpsFetcher(private val userAgent: String) : Fetcher {
             if (declared > maxBytes) throw ResourceTooLargeException("Resource too large: $declared bytes")
             val digest = MessageDigest.getInstance("SHA-256")
             var total = 0L
+            val length = if (declared > 0) declared else -1L
+            observer?.onProgress(0L, length, false)
             connection.inputStream.use { input ->
                 FileOutputStream(destination).use { output ->
                     val buffer = ByteArray(64 * 1024)
@@ -84,11 +94,13 @@ internal class HttpsFetcher(private val userAgent: String) : Fetcher {
                         if (total > maxBytes) throw ResourceTooLargeException("Resource exceeded $maxBytes bytes")
                         digest.update(buffer, 0, read)
                         output.write(buffer, 0, read)
+                        observer?.onProgress(total, length, false)
                     }
                     output.fd.sync()
                 }
             }
             if (total == 0L) throw IOException("Empty resource")
+            observer?.onProgress(total, length, true)
             return Download(digest.digest().toHex(), total)
         } catch (error: IOException) {
             destination.delete()

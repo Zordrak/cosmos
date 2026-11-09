@@ -169,12 +169,13 @@ internal object RefreshCoordinator {
         store: CatalogueStore,
         userState: UserStateStore,
         budgetFor: (usedBytes: Long) -> CacheBudget,
-        startIndex: Int = 0
+        startIndex: Int = 0,
+        progress: ProgressTracker = RefreshProgress.saving
     ): CatalogueRefresher {
         val settings = CosmosSettings(context)
         val trash = TrashBin.of(context)
         return CatalogueRefresher(
-            fetcher = HttpsFetcher(userAgent(context)),
+            fetcher = HttpsFetcher(userAgent(context), progress.observer),
             store = store,
             userState = userState,
             inspector = ::inspectImage,
@@ -184,7 +185,8 @@ internal object RefreshCoordinator {
             budgetFor = budgetFor,
             startIndex = startIndex,
             isStashed = trash::isStashed,
-            holdAdmissions = { trash.pending() != null }
+            holdAdmissions = { trash.pending() != null },
+            progress = progress
         )
     }
 

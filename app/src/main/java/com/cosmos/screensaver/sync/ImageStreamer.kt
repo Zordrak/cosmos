@@ -43,7 +43,7 @@ internal class ImageStreamer(context: Context) {
             RefreshCoordinator.createRefresher(appContext, store, LibraryStorage.userState(appContext), {
                 val free = RefreshCoordinator.freeBytes(appContext)
                 if (free == null) CacheBudget.UNKNOWN else CacheBudget.fixed(Long.MAX_VALUE, free)
-            })
+            }, progress = RefreshProgress.streaming)
                 .also {
                     refresher = it
                     fingerprint = current

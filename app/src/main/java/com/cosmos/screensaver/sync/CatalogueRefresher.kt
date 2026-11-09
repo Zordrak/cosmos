@@ -104,7 +104,9 @@ internal class CatalogueRefresher(
     /** True for a picture (by source key, and by content hash once known) that an undoable removal holds; it must not be saved again. */
     private val isStashed: (key: String, sha256: String) -> Boolean = { _, _ -> false },
     /** True while saving must wait (a removal can still be undone). */
-    private val holdAdmissions: () -> Boolean = { false }
+    private val holdAdmissions: () -> Boolean = { false },
+    /** Where progress is reported (what is downloading, how fast); null reports nothing. */
+    private val progress: ProgressTracker? = null
 ) {
     data class Limits(
         val maxLeadsPerSource: Int = 60,
@@ -165,6 +167,9 @@ internal class CatalogueRefresher(
     private val policies = mutableMapOf<DjangoplicitySite, PolicyState>()
     private var withdrawnCount = 0
 
+    /** The run being reported to; a refresher serves one operation at a time. */
+    private var run: ProgressRun? = null
+
     /** Starts the walk through the sources at [startIndex], wrapping round, so none is always last. */
     private fun rotated(sorted: List<SourceAdapter>): List<SourceAdapter> {
         if (sorted.isEmpty()) return sorted
@@ -173,6 +178,20 @@ internal class CatalogueRefresher(
     }
 
     fun refresh(): RefreshResult {
+        val current = progress?.begin()
+        run = current
+        try {
+            return runRefresh()
+        } catch (error: Throwable) {
+            current?.fail(error)
+            throw error
+        } finally {
+            current?.end()
+            run = null
+        }
+    }
+
+    private fun runRefresh(): RefreshResult {
         val startedAt = clock()
         val initial = store.loadStrict()
         // An unreadable list of blocked pictures must stop a refresh, not let them back in.
@@ -212,6 +231,7 @@ internal class CatalogueRefresher(
                     when (val state = policyFor(site)) {
                         is PolicyState.Unavailable -> {
                             errors += state.reason
+                            run?.error(ProgressErrorKind.DISCOVERY, state.reason, adapter.label)
                             continue@sources
                         }
                         PolicyState.Mismatch -> {
@@ -221,8 +241,10 @@ internal class CatalogueRefresher(
                         is PolicyState.Current -> Unit
                     }
                 }
+                run?.discovering(adapter.label)
                 val discovery = adapter.discover(fetcher, random)
                 errors += discovery.errors
+                discovery.errors.lastOrNull()?.let { run?.error(ProgressErrorKind.DISCOVERY, it, adapter.label) }
                 if (discovery.reached) anySourceReached = true
 
                 val satisfied = snapshot().eligibleKeys
@@ -243,6 +265,7 @@ internal class CatalogueRefresher(
                     if (holdAdmissions()) break@sources
                     resolved++
                     val key = "$keyPrefix${lead.id}"
+                    run?.discovering(adapter.label)
                     val outcome = try {
                         when (val result = lead.resolve()) {
                             is CandidateResult.Skip -> Outcome.Rejected(result.reason)
@@ -260,14 +283,19 @@ internal class CatalogueRefresher(
                             admitted++
                             sourceAdmissions++
                             runAdmissions++
+                            run?.admitted()
                         }
                         is Outcome.Rejected -> {
                             val record = RejectionRecord(outcome.reason, clock())
                             rejections[key] = record
                             newRejections[key] = record
                             rejected++
+                            run?.skipped()
                         }
-                        is Outcome.Failed -> errors += "${lead.id}: ${outcome.reason}"
+                        is Outcome.Failed -> {
+                            errors += "${lead.id}: ${outcome.reason}"
+                            run?.error(ProgressErrorKind.DOWNLOAD, outcome.reason, adapter.label)
+                        }
                         Outcome.Held -> Unit
                         is Outcome.NoSpace -> {
                             space = SpaceStatus.of(outcome.reason)
@@ -310,10 +338,30 @@ internal class CatalogueRefresher(
         weightOf: (AssetProvider) -> SourceWeight,
         isCancelled: () -> Boolean = { false }
     ): Streamed? {
+        val current = progress?.begin()
+        run = current
+        try {
+            return streamProbe(queue, mode, weightOf, isCancelled)
+        } catch (error: Throwable) {
+            current?.fail(error)
+            throw error
+        } finally {
+            current?.end()
+            run = null
+        }
+    }
+
+    private fun streamProbe(
+        queue: StreamQueue,
+        mode: OrderMode,
+        weightOf: (AssetProvider) -> SourceWeight,
+        isCancelled: () -> Boolean
+    ): Streamed? {
         store.imagesDirectory.mkdirs()
         val failed = mutableSetOf<String>()
         var refilledThisCall = false
         fun refill() {
+            run?.discovering()
             queue.refill(adapters, fetcher, random) { key -> userState.load().isBlocked(key, null) }
             refilledThisCall = true
         }
@@ -343,6 +391,7 @@ internal class CatalogueRefresher(
             }
             if (outcome !is Outcome.Admitted) {
                 failed += key
+                run?.skipped()
                 recordStreamFailure(key)
                 return@repeat
             }
@@ -692,6 +741,7 @@ internal class CatalogueRefresher(
         var stored = false
         try {
             val download = try {
+                run?.downloading(candidate.title, sourceLabel(candidate))
                 fetcher.download(option.url, temporary, allowedBytes)
             } catch (error: ResourceTooLargeException) {
                 return if (allowedBytes < option.maxBytes) Outcome.NoSpace(NoRoomReason.DEVICE_PRESSURE)
@@ -699,6 +749,7 @@ internal class CatalogueRefresher(
             } catch (error: IOException) {
                 return Outcome.Failed("download failed (${error.describe()})")
             }
+            run?.checking()
             val header = temporary.inputStream().use { input ->
                 val buffer = ByteArray(HEADER_BYTES)
                 buffer.copyOf(input.read(buffer).coerceAtLeast(0))
