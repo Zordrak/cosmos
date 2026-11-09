@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Toast
+import com.cosmos.screensaver.LibraryActivity
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.SettingsActivity
 import com.cosmos.screensaver.launchDreamSettings
@@ -109,6 +110,10 @@ internal class SettingsScreen(override val activity: Activity, private val page:
 
     override fun openPage(page: Page) {
         activity.startActivity(SettingsActivity.intent(activity, page))
+    }
+
+    override fun openLibrary(blocked: Boolean) {
+        activity.startActivity(LibraryActivity.intent(activity, blocked))
     }
 
     override fun viewingChanged(refresh: Boolean) {

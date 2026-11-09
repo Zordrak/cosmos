@@ -29,6 +29,7 @@ internal data class LibrarySnapshot(
     val pictures: Int = 0,
     val favouritePictures: Int = 0,
     val favouriteBytes: Long = 0L,
+    val blockedCount: Int = 0,
     /** Files set aside for a change that can still be undone. */
     val trashBytes: Long = 0L,
     val measurement: StorageMeasurement = StorageMeasurement.Unknown,
@@ -77,6 +78,7 @@ internal data class LibrarySnapshot(
                         pictures = SelectionSnapshot.uniquePictures(entries),
                         favouritePictures = SelectionSnapshot.favouritePictures(entries, userState),
                         favouriteBytes = SelectionSnapshot.favouriteBytes(entries, userState),
+                        blockedCount = userState.blocked.size,
                         trashBytes = trash.bytesOnDisk(),
                         measurement = RefreshCoordinator.measure(appContext),
                         pending = trash.pending()

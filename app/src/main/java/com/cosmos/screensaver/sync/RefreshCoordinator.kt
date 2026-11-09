@@ -174,6 +174,7 @@ internal object RefreshCoordinator {
     ): CatalogueRefresher {
         val settings = CosmosSettings(context)
         val trash = TrashBin.of(context)
+        val startedAt = ElapsedRealtimeClock.elapsedMillis()
         return CatalogueRefresher(
             fetcher = HttpsFetcher(userAgent(context), progress.observer),
             store = store,
@@ -184,7 +185,7 @@ internal object RefreshCoordinator {
             selection = settings.selection,
             budgetFor = budgetFor,
             startIndex = startIndex,
-            isStashed = trash::isStashed,
+            isStashed = { key, sha -> trash.isStashed(key, sha) || RemovalFence.removedSince(key, sha, startedAt) },
             holdAdmissions = { trash.pending() != null },
             progress = progress
         )

@@ -1,6 +1,8 @@
 package com.cosmos.screensaver.catalogue
 
 import com.cosmos.screensaver.source.ContentFilter
+import com.cosmos.screensaver.sync.ElapsedRealtimeClock
+import com.cosmos.screensaver.sync.RemovalFence
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -143,6 +145,70 @@ internal object LibraryMaintenance {
         }
         deleteUnreferenced(store, targets, remaining)
         targets.size
+    }
+
+    /** What an explicit, owner-confirmed command did. */
+    enum class Action { DONE, GONE, UNREADABLE, FAILED }
+
+    /**
+     * The owner confirmed removing one picture: every alias is removed, even a favourite (which also
+     * loses its protection), and in-flight downloads of it are fenced off. It is not blocked, so a
+     * later refresh may bring it back. Acts on [identity], never on a list position.
+     */
+    fun removePicture(
+        store: CatalogueStore,
+        userState: UserStateStore,
+        identity: String,
+        atMillis: Long = ElapsedRealtimeClock.elapsedMillis()
+    ): Action = CatalogueStore.locked {
+        val state = (userState.read() as? UserStateRead.Ok)?.state ?: return@locked Action.UNREADABLE
+        val catalogue = (store.read() as? StoreRead.Ok)?.catalogue ?: return@locked Action.UNREADABLE
+        val targets = catalogue.entries.filter { (it.sha256.ifBlank { it.key }) == identity }
+        if (targets.isEmpty()) return@locked Action.GONE
+        discard(store, userState, state, catalogue, targets, atMillis)
+    }
+
+    /**
+     * The owner confirmed blocking one picture. The block (every known key plus the content hash) is
+     * saved BEFORE anything is removed, so a failure can never leave a picture removed but allowed back.
+     */
+    fun blockPicture(
+        store: CatalogueStore,
+        userState: UserStateStore,
+        identity: String,
+        nowMillis: Long = System.currentTimeMillis(),
+        atMillis: Long = ElapsedRealtimeClock.elapsedMillis()
+    ): Action = CatalogueStore.locked {
+        val state = (userState.read() as? UserStateRead.Ok)?.state ?: return@locked Action.UNREADABLE
+        val catalogue = (store.read() as? StoreRead.Ok)?.catalogue ?: return@locked Action.UNREADABLE
+        val targets = catalogue.entries.filter { (it.sha256.ifBlank { it.key }) == identity }
+        if (targets.isEmpty()) return@locked Action.GONE
+        if (!userState.block(targets, nowMillis)) return@locked Action.FAILED
+        discard(store, userState, state, catalogue, targets, atMillis)
+    }
+
+    private fun discard(
+        store: CatalogueStore,
+        userState: UserStateStore,
+        state: UserState,
+        catalogue: Catalogue,
+        targets: List<CatalogueEntry>,
+        atMillis: Long
+    ): Action {
+        val remaining = catalogue.entries - targets.toSet()
+        RemovalFence.note(
+            targets.map { it.key }.toSet(), targets.first().sha256, atMillis
+        )
+        try {
+            store.update { it.copy(entries = remaining) }
+        } catch (error: IOException) {
+            return Action.FAILED
+        }
+        deleteUnreferenced(store, targets, remaining)
+        val hashes = targets.map { it.sha256 }.filter { state.isFavourite(it) }
+        // A leftover favourite mark with no picture is harmless, so a failure here is not an error for the owner.
+        hashes.forEach { userState.setFavourite(it, false) }
+        return Action.DONE
     }
 
     /** Lifts a block and forgets any cached "blocked" decisions so the picture can return at once. */

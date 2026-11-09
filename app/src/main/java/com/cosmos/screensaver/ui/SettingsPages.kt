@@ -37,6 +37,9 @@ internal interface PageEnv {
     val snapshot: LibrarySnapshot
     fun openPage(page: Page)
 
+    /** Opens the saved pictures browser, or the list of blocked pictures when [blocked]. */
+    fun openLibrary(blocked: Boolean)
+
     /** A viewing choice changed; [refresh] also asks the sources for pictures matching it. */
     fun viewingChanged(refresh: Boolean)
 
@@ -357,6 +360,10 @@ internal class SettingsPages(private val env: PageEnv) {
         })
         UndoNotice.row(ui, env)
         ui.action(
+            "browse", s(R.string.row_browse), { s(R.string.row_browse_summary) },
+            value = { env.snapshot.takeIf { it.loaded && !it.unreadable }?.pictures?.toString() }
+        ) { env.openLibrary(blocked = false) }
+        ui.action(
             "space", s(R.string.row_space), { s(R.string.row_space_summary) },
             value = { SpacePage.limitLabel(activity, settings.cacheLimitBytes) }
         ) { env.openPage(Page.SPACE) }
@@ -423,6 +430,10 @@ internal class SettingsPages(private val env: PageEnv) {
                 env.viewingChanged(refresh = true)
             }
         }
+        ui.action(
+            "blocked", s(R.string.row_blocked), { s(R.string.row_blocked_summary) },
+            value = { env.snapshot.takeIf { it.loaded && !it.unreadable }?.blockedCount?.toString() }
+        ) { env.openLibrary(blocked = true) }
         ui.action("about", s(R.string.row_about), { s(R.string.row_about_summary) }) { env.openPage(Page.ABOUT) }
         return PageContent(ui.rows)
     }

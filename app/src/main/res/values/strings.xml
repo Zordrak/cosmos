@@ -243,6 +243,45 @@
     <string name="reset_confirm_button">Reset</string>
     <string name="row_about">About Cosmos</string>
     <string name="row_about_summary">Version, privacy and where pictures come from.</string>
+    <string name="row_blocked">Blocked pictures</string>
+    <string name="row_blocked_summary">Pictures you chose never to see again. Unblock any of them here.</string>
+    <string name="row_browse">Browse saved pictures</string>
+    <string name="row_browse_summary">See what is saved and downloading. Favourite, remove or block pictures.</string>
+
+    <!-- Saved pictures browser -->
+    <string name="library_title_saved">Saved pictures</string>
+    <string name="library_title_blocked">Blocked pictures</string>
+    <plurals name="library_summary">
+        <item quantity="one">%1$d picture saved \u00B7 %2$s</item>
+        <item quantity="other">%1$d pictures saved \u00B7 %2$s</item>
+    </plurals>
+    <string name="library_blocked_link">Blocked pictures (%1$d) \u203A</string>
+    <string name="library_title_favourite">\u2605 %1$s</string>
+    <string name="library_blocked_subtitle">%1$s \u00B7 %2$s</string>
+    <string name="library_loading">Loading…</string>
+    <string name="library_empty">Nothing is saved yet. Cosmos saves pictures as it finds them; the status above shows when it is looking.</string>
+    <string name="library_blocked_empty">No pictures are blocked. A picture you block appears here, so you can bring it back.</string>
+    <string name="library_unreadable">The list of saved pictures could not be read, so nothing is shown and nothing was changed.</string>
+    <string name="library_blocked_hint">Select to see the pictures you have blocked.</string>
+    <string name="library_preview_unavailable">Preview not available</string>
+    <string name="library_favourite">Favourite</string>
+    <string name="library_unfavourite">Unfavourite</string>
+    <string name="library_remove">Remove</string>
+    <string name="library_block">Block</string>
+    <string name="library_unblock">Unblock</string>
+    <string name="library_remove_title">Remove this picture?</string>
+    <string name="library_remove_message">Remove %1$s from this TV? Cosmos may save it again later.</string>
+    <string name="library_remove_message_favourite">Remove %1$s from this TV? It is a favourite, so removing it ends its protection. Cosmos may save it again later.</string>
+    <string name="library_block_title">Block this picture?</string>
+    <string name="library_block_message">Remove and stop showing %1$s? You can unblock it under More \u203A Blocked pictures.</string>
+    <string name="library_toast_favourited">Favourite. It stays on this TV and is shown more often in Fair shuffle.</string>
+    <string name="library_toast_unfavourited">No longer a favourite.</string>
+    <string name="library_toast_removed">Removed.</string>
+    <string name="library_toast_blocked">Blocked. You can unblock it under More \u203A Blocked pictures.</string>
+    <string name="library_toast_unblocked">Unblocked. Cosmos may save it again.</string>
+    <string name="library_toast_gone">That picture was already gone.</string>
+    <string name="library_toast_failed">That change could not be finished. Please try again.</string>
+    <string name="library_toast_no_checksum">This picture has no checksum yet, so it cannot be a favourite.</string>
 
     <!-- About -->
     <string name="about_row_version">Version</string>
