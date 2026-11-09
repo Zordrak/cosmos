@@ -76,10 +76,11 @@ internal class SettingsUi(private val activity: Activity) {
         value: (() -> String?)? = null,
         enabledReason: () -> String? = { null },
         onUnavailable: (() -> Unit)? = null,
+        visible: () -> Boolean = { true },
         onSelect: () -> Unit
     ): SettingsRow = row(
         id, title, summary, value, enabledReason,
-        onSelect = onSelect, onStep = null, onUnavailable = onUnavailable, stepIsSet = false
+        onSelect = onSelect, onStep = null, onUnavailable = onUnavailable, stepIsSet = false, visible = visible
     )
 
     /** A row showing a current value; Select opens [options] in a picker and Left/Right cycle [cycle]. */
@@ -155,7 +156,8 @@ internal class SettingsUi(private val activity: Activity) {
         onSelect: () -> Unit,
         onStep: ((Int) -> Unit)?,
         onUnavailable: (() -> Unit)?,
-        stepIsSet: Boolean
+        stepIsSet: Boolean,
+        visible: () -> Boolean = { true }
     ): SettingsRow {
         val container = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -200,6 +202,13 @@ internal class SettingsUi(private val activity: Activity) {
         }
 
         val refresh = {
+            val shown = visible()
+            if (!shown && container.isFocused) {
+                // Hand focus to a neighbour before hiding, so the focus tree never loses its place.
+                (container.focusSearch(View.FOCUS_DOWN) ?: container.focusSearch(View.FOCUS_UP))
+                    ?.takeIf { it !== container }?.requestFocus()
+            }
+            container.visibility = if (shown) View.VISIBLE else View.GONE
             val reason = enabledReason()
             val shownSummary = reason ?: summary()
             summaryView.text = shownSummary

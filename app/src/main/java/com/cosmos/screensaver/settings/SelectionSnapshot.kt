@@ -76,5 +76,16 @@ internal class SelectionSnapshot private constructor(
             entries.distinctBy { it.fileName }.sumOf { it.byteCount }
 
         fun physicalFiles(entries: List<CatalogueEntry>): Int = entries.distinctBy { it.fileName }.size
+
+        /** Distinct pictures (aliases of the same picture count once). */
+        fun uniquePictures(entries: List<CatalogueEntry>): Int = entries.map(::identity).toSet().size
+
+        /** Distinct favourite pictures. */
+        fun favouritePictures(entries: List<CatalogueEntry>, state: UserState): Int =
+            entries.filter { state.isFavourite(it.sha256) }.map(::identity).toSet().size
+
+        /** Bytes on disk of the files holding favourites, each file counted once. */
+        fun favouriteBytes(entries: List<CatalogueEntry>, state: UserState): Long =
+            physicalBytes(entries.filter { state.isFavourite(it.sha256) })
     }
 }

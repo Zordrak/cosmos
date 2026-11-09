@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Toast
@@ -41,8 +42,9 @@ internal class SettingsScreen(override val activity: Activity, private val page:
         override fun run() {
             reloadSnapshot()
             updateAll()
-            if (RefreshCoordinator.isRunning || System.currentTimeMillis() < pollUntil) {
-                handler.postDelayed(this, POLL_MILLIS)
+            val undoPending = snapshot.pending != null
+            if (undoPending || RefreshCoordinator.isRunning || System.currentTimeMillis() < pollUntil) {
+                handler.postDelayed(this, if (undoPending) UNDO_POLL_MILLIS else POLL_MILLIS)
             }
         }
     }
@@ -73,12 +75,13 @@ internal class SettingsScreen(override val activity: Activity, private val page:
             addView(scroll, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.62f))
         }
         activity.setContentView(root)
+        updateAll()
 
         val savedId = savedInstanceState?.getString(STATE_FOCUS)
-        val target = content.rows.firstOrNull { it.id == savedId } ?: content.rows.firstOrNull()
+        val visibleRows = content.rows.filter { it.view.visibility == View.VISIBLE }
+        val target = visibleRows.firstOrNull { it.id == savedId } ?: visibleRows.firstOrNull()
         target?.view?.requestFocus()
         savedInstanceState?.getInt(STATE_SCROLL)?.let { y -> scroll.post { scroll.scrollTo(0, y) } }
-        updateAll()
     }
 
     fun onResume(autoRefresh: Boolean) {
@@ -112,6 +115,11 @@ internal class SettingsScreen(override val activity: Activity, private val page:
         if (refresh) requestForcedRefresh()
         reloadSnapshot()
         updateAll()
+    }
+
+    override fun libraryChanged() {
+        reloadSnapshot()
+        startPolling()
     }
 
     override fun lookForNewPictures() {
@@ -169,6 +177,7 @@ internal class SettingsScreen(override val activity: Activity, private val page:
     }
 
     private fun updateAll() {
+        if (!::content.isInitialized) return
         content.rows.forEach { it.update() }
         content.updateLeft()
     }
@@ -180,6 +189,7 @@ internal class SettingsScreen(override val activity: Activity, private val page:
         const val STATE_FOCUS = "focused_row"
         const val STATE_SCROLL = "scroll_y"
         const val POLL_MILLIS = 1_500L
+        const val UNDO_POLL_MILLIS = 1_000L
         const val POLL_GRACE_MILLIS = 3_000L
         const val SCREENSAVER_COMPONENTS = "screensaver_components"
     }

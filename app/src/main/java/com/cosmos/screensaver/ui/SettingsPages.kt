@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.text.format.DateUtils
-import android.text.format.Formatter
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -28,7 +27,7 @@ import com.cosmos.screensaver.source.Sources
 import com.cosmos.screensaver.sync.RefreshCoordinator
 
 /** The settings pages. Home is the hub; each other page is one decision area reached from it. */
-internal enum class Page { HOME, WHAT_TO_SHOW, SOURCES, SLIDESHOW, SAVED_PICTURES, WHEN_IT_STARTS, MORE, ABOUT }
+internal enum class Page { HOME, WHAT_TO_SHOW, SOURCES, SLIDESHOW, SAVED_PICTURES, SPACE, WHEN_IT_STARTS, MORE, ABOUT }
 
 /** What a page needs from the screen hosting it. */
 internal interface PageEnv {
@@ -40,6 +39,9 @@ internal interface PageEnv {
 
     /** A viewing choice changed; [refresh] also asks the sources for pictures matching it. */
     fun viewingChanged(refresh: Boolean)
+
+    /** The saved pictures or their Undo state changed: reload the snapshot and keep it fresh while Undo can still happen. */
+    fun libraryChanged()
     fun lookForNewPictures()
     fun startPreview()
     fun openTvScreensaverSettings()
@@ -60,6 +62,7 @@ internal class SettingsPages(private val env: PageEnv) {
         Page.SOURCES -> sources(left)
         Page.SLIDESHOW -> slideshow(left)
         Page.SAVED_PICTURES -> savedPictures(left)
+        Page.SPACE -> SpacePage(env).build(left)
         Page.WHEN_IT_STARTS -> whenItStarts(left)
         Page.MORE -> more(left)
         Page.ABOUT -> about(left)
@@ -90,7 +93,7 @@ internal class SettingsPages(private val env: PageEnv) {
             "saved", s(R.string.home_saved), { s(R.string.home_saved_summary) },
             value = {
                 HomeSummaries.savedPictures(text, env.snapshot.saved, settings.streamOnly) {
-                    Formatter.formatShortFileSize(activity, it)
+                    ByteSizes.format(it)
                 }.ifEmpty { null }
             }
         ) { env.openPage(Page.SAVED_PICTURES) }
@@ -122,7 +125,7 @@ internal class SettingsPages(private val env: PageEnv) {
                 )
             }
             if (snap.loaded && !snap.unreadable) {
-                val size = Formatter.formatShortFileSize(activity, snap.bytes)
+                val size = ByteSizes.format(snap.bytes)
                 if (snap.lowOnSpace) {
                     storage.set(activity.getString(R.string.home_low_space, size), SettingsColors.WARNING)
                 } else {
@@ -348,13 +351,25 @@ internal class SettingsPages(private val env: PageEnv) {
         val ui = SettingsUi(activity)
         subPageLeft(ui, left, R.string.saved_left_title, null)
         val updateStatus = statusViews(ui, left)
+        val miniBar = StorageBarView(activity, mini = true)
+        left.addView(miniBar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ui.dp(16)
+        })
+        UndoNotice.row(ui, env)
+        ui.action(
+            "space", s(R.string.row_space), { s(R.string.row_space_summary) },
+            value = { SpacePage.limitLabel(activity, settings.cacheLimitBytes) }
+        ) { env.openPage(Page.SPACE) }
         ui.action(
             "refresh", s(R.string.row_refresh),
             { s(if (RefreshCoordinator.isRunning) R.string.home_refreshing else R.string.row_refresh_summary) }
         ) {
             if (!RefreshCoordinator.isRunning) env.lookForNewPictures()
         }
-        return PageContent(ui.rows, updateStatus)
+        return PageContent(ui.rows) {
+            updateStatus()
+            miniBar.show(env.snapshot.barLayout(settings.cacheLimitBytes))
+        }
     }
 
     private fun whenItStarts(left: LinearLayout): PageContent {

@@ -143,6 +143,78 @@
     <string name="saved_left_title">On this TV</string>
     <string name="row_refresh">Look for new pictures now</string>
     <string name="row_refresh_summary">Checks the sources now. This also happens automatically.</string>
+    <string name="row_space">Space for pictures</string>
+    <string name="row_space_summary">How much room Cosmos may use on this TV.</string>
+    <string name="value_automatic">Automatic</string>
+
+    <!-- Space for pictures -->
+    <string name="space_value_auto">Automatic · up to %1$s</string>
+    <string name="space_trying">Trying %1$s. Not applied yet (now %2$s).</string>
+    <string name="space_left_hint">The white mark shows where this size ends.</string>
+    <string name="row_size">Size</string>
+    <string name="size_summary_auto">Cosmos picks a size that suits this TV, up to %1$s. Use the arrows to try another.</string>
+    <string name="size_summary_fixed">Cosmos keeps up to %1$s of saved pictures. Use the arrows to try another.</string>
+    <string name="row_use_size">Use this size</string>
+    <string name="use_size_summary">Apply %1$s. Nothing changes until you do.</string>
+    <string name="use_size_reason">Choose a different size first.</string>
+    <string name="use_size_busy">Finish or undo the last change first.</string>
+    <plurals name="space_room_exact">
+        <item quantity="one">Room for about %1$d picture like yours (about %2$s each).</item>
+        <item quantity="other">Room for about %1$d pictures like yours (about %2$s each).</item>
+    </plurals>
+    <plurals name="space_room_estimate">
+        <item quantity="one">Room for about %1$d picture. This is an estimate, assuming about 4 MB per picture.</item>
+        <item quantity="other">Room for about %1$d pictures. This is an estimate, assuming about 4 MB per picture.</item>
+    </plurals>
+    <string name="space_note_unavailable">This TV isn\'t reporting its free space, so Cosmos won\'t add or remove pictures until it does.</string>
+    <string name="space_note_constrained">This TV\'s free space is the limit right now, so Cosmos can use up to %1$s. Cosmos aims to leave %2$s free for the TV.</string>
+    <string name="space_note_shortfall">Free space is already below the %1$s Cosmos aims to leave free.</string>
+    <string name="space_note_favourites">Your favourites are more than this size allows. They are never removed, so no new pictures are saved until there is room.</string>
+    <string name="space_note_undo">Pictures set aside for Undo still use space until Undo ends.</string>
+    <string name="space_applied">Space for pictures is now %1$s.</string>
+    <string name="space_confirm_title">Use %1$s?</string>
+    <plurals name="space_confirm_message">
+        <item quantity="one">Making it %1$s removes %2$d picture (%3$s) to fit.</item>
+        <item quantity="other">Making it %1$s removes %2$d pictures (%3$s) to fit.</item>
+    </plurals>
+    <plurals name="space_confirm_favourites">
+        <item quantity="one">Your %1$d favourite is never removed.</item>
+        <item quantity="other">Your %1$d favourites are never removed.</item>
+    </plurals>
+    <plurals name="space_confirm_undo">
+        <item quantity="one">You can undo this for %1$d second, and Undo also puts the old size back.</item>
+        <item quantity="other">You can undo this for %1$d seconds, and Undo also puts the old size back.</item>
+    </plurals>
+    <plurals name="space_confirm_button">
+        <item quantity="one">Remove %1$d picture</item>
+        <item quantity="other">Remove %1$d pictures</item>
+    </plurals>
+    <string name="space_changed">The pictures affected changed, so please check the new numbers.</string>
+    <string name="bar_other">Other things on this TV</string>
+    <string name="bar_favourites">Favourites (never removed)</string>
+    <string name="bar_saved">Saved pictures</string>
+    <string name="bar_undo">Waiting for Undo</string>
+    <string name="bar_room">Room Cosmos can still use</string>
+    <string name="bar_unallocated">Free, not used by Cosmos</string>
+    <string name="bar_reserved">Kept free for the TV</string>
+
+    <!-- Undo -->
+    <string name="undo_title">Undo</string>
+    <string name="undo_button">Put back</string>
+    <plurals name="undo_removed">
+        <item quantity="one">Removed %1$d picture (%2$s).</item>
+        <item quantity="other">Removed %1$d pictures (%2$s).</item>
+    </plurals>
+    <string name="undo_tail">Select to undo. %1$d s left.</string>
+    <string name="undo_tail_with_size">Select to undo, including the size. %1$d s left.</string>
+    <plurals name="undo_done">
+        <item quantity="one">Put back %d picture.</item>
+        <item quantity="other">Put back %d pictures.</item>
+    </plurals>
+    <string name="undo_partial">Put back: %1$d. Not put back: %2$d.</string>
+    <string name="undo_expired">Too late to undo this.</string>
+    <string name="undo_nothing">Nothing to undo.</string>
+    <string name="undo_failed">Undo did not work.</string>
 
     <!-- When it starts -->
     <string name="when_left_body">The TV decides when its screensaver starts, and it can delay it. Press any button to stop the screensaver.</string>
