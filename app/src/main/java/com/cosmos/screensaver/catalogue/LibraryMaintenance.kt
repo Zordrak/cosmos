@@ -119,13 +119,20 @@ internal object LibraryMaintenance {
         true
     }
 
+    /** Returned by [evict] when the picture is a favourite (possibly made one after the caller chose it). */
+    const val PROTECTED = -1
+
     /**
-     * Removes every alias of one picture to make room. Callers must have excluded favourites.
+     * Removes every alias of one picture to make room. Favourite status is re-read under the lock,
+     * so a stale candidate list can never delete a picture favourited meanwhile. Returns the
+     * number of aliases removed, [PROTECTED], or 0 if nothing could be removed.
      */
-    fun evict(store: CatalogueStore, identity: String): Int = CatalogueStore.locked {
+    fun evict(store: CatalogueStore, userState: UserStateStore, identity: String): Int = CatalogueStore.locked {
+        val state = (userState.read() as? UserStateRead.Ok)?.state ?: return@locked 0
         val catalogue = (store.read() as? StoreRead.Ok)?.catalogue ?: return@locked 0
         val targets = catalogue.entries.filter { (it.sha256.ifBlank { it.key }) == identity }
         if (targets.isEmpty()) return@locked 0
+        if (targets.any { state.isFavourite(it.sha256) }) return@locked PROTECTED
         val remaining = catalogue.entries - targets.toSet()
         try {
             store.update { it.copy(entries = remaining) }

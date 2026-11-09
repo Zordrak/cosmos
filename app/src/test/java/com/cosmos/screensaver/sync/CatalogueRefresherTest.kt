@@ -326,13 +326,17 @@ class CatalogueRefresherTest {
     }
 
     @Test
-    fun enforcesCapacityKeepingTheNewestImages() {
-        listOf("heic9901a", "heic9902a", "heic9903a").forEach { publish(hubble, it) }
-        val limits = CatalogueRefresher.Limits(maxEntries = 2, maxAdmissionsPerSource = 1)
+    fun enforcesTheSpaceBudgetKeepingTheNewestImages() {
+        val mib = 1024L * 1024
+        listOf("heic9901a", "heic9902a", "heic9903a").forEach { id ->
+            publish(hubble, id)
+            fetcher.sizes[hubble.renditionUrl(Rendition.PUBLICATION, id)] = 40 * mib
+        }
+        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
 
         repeat(3) {
             now += 1000
-            refresher(limits = limits).refresh()
+            refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
         }
 
         val entries = store.load().entries
@@ -563,16 +567,135 @@ class CatalogueRefresherTest {
 
     @Test
     fun capsRotationWhenTheLibraryIsFull() {
-        (1..6).forEach { publish(hubble, "heic990${it}a") }
-        val limits = CatalogueRefresher.Limits(maxEntries = 2, maxAdmissionsPerSource = 8, maxAdmissionsWhenFull = 1)
-        refresher(selection = personal, limits = limits).refresh()
+        val mib = 1024L * 1024
+        (1..6).forEach { id ->
+            publish(hubble, "heic990${id}a")
+            fetcher.sizes[hubble.renditionUrl(Rendition.PUBLICATION, "heic990${id}a")] = 40 * mib
+        }
+        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 8, maxAdmissionsWhenFull = 1)
+        refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
         assertEquals(2, store.load().entries.size)
         now += 1000
 
-        val result = refresher(selection = personal, limits = limits).refresh()
+        val result = refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
 
         assertEquals(1, result.admitted)
         assertEquals(2, store.load().entries.size)
+    }
+
+    private val mib = 1024L * 1024
+
+    private fun sizeOf(site: DjangoplicitySite, id: String, bytes: Long) {
+        fetcher.sizes[site.renditionUrl(Rendition.PUBLICATION, id)] = bytes
+    }
+
+    @Test
+    fun thereIsNoCapOnTheNumberOfSavedPictures() {
+        val ids = (1..160).map { "heic9%03da".format(it) }
+        ids.forEach { publish(hubble, it) }
+        val limits = CatalogueRefresher.Limits(maxLeadsPerSource = 200, maxAdmissionsPerSource = 200)
+
+        refresher(limits = limits).refresh()
+
+        assertEquals(160, store.load().entries.size)
+    }
+
+    @Test
+    fun onlyFavouritesLeftIsReportedAsFavouritesNotAsDevicePressure() {
+        (1..3).forEach { id ->
+            publish(hubble, "heic990${id}a")
+            sizeOf(hubble, "heic990${id}a", 40 * mib)
+        }
+        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
+        repeat(2) {
+            now += 1000
+            refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+        }
+        store.load().entries.forEach { userState.setFavourite(it.sha256, true) }
+        now += 1000
+
+        val result = refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+
+        assertTrue(result.space.favouritesPreventSaving)
+        assertFalse(result.space.devicePressure)
+        assertFalse(result.lowSpace)
+        assertEquals(2, store.load().entries.size)
+    }
+
+    @Test
+    fun aPictureBiggerThanTheChosenSizeIsAUserLimitNotDevicePressure() {
+        publish(hubble, "heic9901a")
+        sizeOf(hubble, "heic9901a", 70 * mib)
+
+        val result = refresher(selection = personal, budgetFor = { 60 * mib }).refresh()
+
+        assertTrue(result.space.userLimitFull)
+        assertFalse(result.space.devicePressure)
+        assertEquals(0, result.admitted)
+        assertTrue(store.load().entries.isEmpty())
+        assertEquals(0, store.imagesDirectory.list()!!.size)
+    }
+
+    @Test
+    fun anUnknownMeasurementDownloadsAndDeletesNothing() {
+        publish(hubble, "heic9901a")
+        publish(hubble, "heic9902a")
+        refresher(limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)).refresh()
+        val before = store.load().entries
+        fetcher.requests.clear()
+        now += 1000
+
+        val result = refresher(cacheBudget = { CacheBudget.UNKNOWN }).refresh()
+
+        assertTrue(result.space.measurementUnavailable)
+        assertEquals(0, result.admitted)
+        assertEquals(before, store.load().entries)
+        assertTrue(fetcher.requests.none { it.contains("cdn.") })
+    }
+
+    @Test
+    fun theDownloadSizeIsCappedByThePhysicalHeadroom() {
+        publish(hubble, "heic9901a")
+        val limits = CatalogueRefresher.Limits(headroomFloorBytes = 90 * mib)
+
+        val result = refresher(cacheBudget = { CacheBudget.fixed(Long.MAX_VALUE, 95 * mib) }, limits = limits).refresh()
+
+        assertEquals(1, result.admitted)
+        assertEquals(listOf(5 * mib), fetcher.maxBytesSeen)
+    }
+
+    @Test
+    fun noDownloadStartsWhenFreeSpaceIsAtTheHeadroomFloor() {
+        publish(hubble, "heic9901a")
+
+        val result = refresher(cacheBudget = { CacheBudget.fixed(Long.MAX_VALUE, 90 * mib) }).refresh()
+
+        assertEquals(0, result.admitted)
+        assertTrue(result.space.devicePressure)
+        assertTrue(fetcher.maxBytesSeen.isEmpty())
+    }
+
+    @Test
+    fun aFullLibraryGivesEverySourceATurnAsTheStartIndexRotates() {
+        (1..4).forEach { id ->
+            publish(hubble, "heic990${id}a")
+            sizeOf(hubble, "heic990${id}a", 40 * mib)
+            publish(webb, "weic990${id}a")
+            sizeOf(webb, "weic990${id}a", 40 * mib)
+        }
+        val fill = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
+        refresher(selection = personal, limits = fill, budgetFor = { 90 * mib }).refresh()
+        assertEquals(2, store.load().entries.size)
+        val whenFull = CatalogueRefresher.Limits(maxAdmissionsPerSource = 8, maxAdmissionsWhenFull = 1)
+
+        val newest = mutableListOf<AssetProvider>()
+        listOf(0, 1).forEach { start ->
+            now += 1000
+            refresher(selection = personal, limits = whenFull, budgetFor = { 90 * mib }, startIndex = start).refresh()
+            newest += store.load().entries.maxByOrNull { it.admittedAtEpochMillis }!!.provider
+        }
+
+        assertEquals(listOf(AssetProvider.ESA_HUBBLE, AssetProvider.ESA_WEBB), newest)
     }
 
     @Test
@@ -878,6 +1001,8 @@ class CatalogueRefresherTest {
         limits: CatalogueRefresher.Limits = CatalogueRefresher.Limits(),
         inspector: ImageInspector = ImageInspector { dimensions[String(it.readBytes(), Charsets.ISO_8859_1).substring(3)] },
         budgetFor: (Long) -> Long = { Long.MAX_VALUE },
+        cacheBudget: ((Long) -> CacheBudget)? = null,
+        startIndex: Int = 0,
         extraAdapters: List<SourceAdapter> = emptyList()
     ) = CatalogueRefresher(
         fetcher = fetcher,
@@ -890,7 +1015,8 @@ class CatalogueRefresherTest {
         clock = { now },
         random = Random(7),
         limits = limits,
-        budgetFor = budgetFor
+        budgetFor = cacheBudget ?: { used -> CacheBudget.fixed(budgetFor(used)) },
+        startIndex = startIndex
     )
 
     private fun publish(
@@ -933,6 +1059,7 @@ class CatalogueRefresherTest {
         val tooLarge = mutableSetOf<String>()
         val sizes = mutableMapOf<String, Long>()
         val requests = mutableListOf<String>()
+        val maxBytesSeen = mutableListOf<Long>()
         var offline = false
 
         override fun fetchText(url: String, maxBytes: Int): String {
@@ -948,6 +1075,7 @@ class CatalogueRefresherTest {
 
         override fun download(url: String, destination: File, maxBytes: Long): Download {
             requests += url
+            maxBytesSeen += maxBytes
             if (offline) throw IOException("offline")
             if (url in tooLarge) throw ResourceTooLargeException("too large")
             val bytes = images[url] ?: throw IOException("HTTP 404 from $url")

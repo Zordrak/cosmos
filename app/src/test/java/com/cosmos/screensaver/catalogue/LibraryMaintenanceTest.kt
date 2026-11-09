@@ -119,10 +119,22 @@ class LibraryMaintenanceTest {
         save("b", sha = sha, provider = AssetProvider.ESA_WEBB)
         val other = save("c")
 
-        assertEquals(2, LibraryMaintenance.evict(store, sha))
+        assertEquals(2, LibraryMaintenance.evict(store, userState, sha))
 
         assertEquals(listOf(other.key), store.load().entries.map { it.key })
         assertFalse(file(one).exists())
+    }
+
+    @Test
+    fun evictRefusesAPictureFavouritedAfterTheListWasBuilt() {
+        val sha = "f".repeat(64)
+        val entry = save("a", sha = sha)
+        userState.setFavourite(sha, true)
+
+        assertEquals(LibraryMaintenance.PROTECTED, LibraryMaintenance.evict(store, userState, sha))
+
+        assertEquals(listOf(entry.key), store.load().entries.map { it.key })
+        assertTrue(file(entry).isFile)
     }
 
     @Test

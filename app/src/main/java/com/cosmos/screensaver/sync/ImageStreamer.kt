@@ -26,8 +26,8 @@ internal class ImageStreamer(context: Context) {
         sweepAbandoned()
     }
 
-    /** True when there is enough free space to hold one image while it is being shown. */
-    fun hasRoom(): Boolean = RefreshCoordinator.freeBytes(appContext) >= MIN_FREE_BYTES
+    /** True when there is enough free space to hold one image while it is being shown. A failed probe means no. */
+    fun hasRoom(): Boolean = (RefreshCoordinator.freeBytes(appContext) ?: 0L) >= MIN_FREE_BYTES
 
     /**
      * Downloads the next image, or returns null if none could be obtained. Delete it with [discard].
@@ -39,7 +39,11 @@ internal class ImageStreamer(context: Context) {
         val current = "${settings.enabledProviders.map { it.name }.sorted()}|${settings.selection}"
         val active = refresher?.takeIf { fingerprint == current } ?: run {
             queue.clear()
-            RefreshCoordinator.createRefresher(appContext, store, LibraryStorage.userState(appContext)) { Long.MAX_VALUE }
+            // Streaming has its own floor: only the physical headroom check applies, not the library's reserve or size.
+            RefreshCoordinator.createRefresher(appContext, store, LibraryStorage.userState(appContext), {
+                val free = RefreshCoordinator.freeBytes(appContext)
+                if (free == null) CacheBudget.UNKNOWN else CacheBudget.fixed(Long.MAX_VALUE, free)
+            })
                 .also {
                     refresher = it
                     fingerprint = current

@@ -17,7 +17,7 @@ class RefreshCoordinatorTest {
     private val populated = Catalogue(
         entries = listOf(CatalogueStoreTest.entry("heic9901a")),
         lastAttemptAtEpochMillis = 0L,
-        selectionFingerprint = selection.fingerprint
+        selectionFingerprint = CatalogueRefresher.fingerprintOf(selection, all)
     )
 
     @Test
@@ -28,7 +28,7 @@ class RefreshCoordinatorTest {
 
     @Test
     fun retriesSoonerWhenEmpty() {
-        val empty = Catalogue(lastAttemptAtEpochMillis = 100 * hour, selectionFingerprint = selection.fingerprint)
+        val empty = Catalogue(lastAttemptAtEpochMillis = 100 * hour, selectionFingerprint = CatalogueRefresher.fingerprintOf(selection, all))
         assertFalse(RefreshCoordinator.isStale(empty, 100 * hour + 5 * 60 * 1000, selection, all))
         assertTrue(RefreshCoordinator.isStale(empty, 100 * hour + 10 * 60 * 1000, selection, all))
     }
@@ -38,7 +38,14 @@ class RefreshCoordinatorTest {
         val lowResolution = populated.copy(entries = populated.entries.map { it.copy(widthPx = 1920, heightPx = 1080) })
         assertTrue(RefreshCoordinator.isStale(lowResolution, 1 * hour, selection, all))
         assertTrue(RefreshCoordinator.isStale(populated, 1 * hour, selection, setOf(AssetProvider.ESA_WEBB)))
-        assertFalse(RefreshCoordinator.isStale(populated, 1 * hour, selection, setOf(AssetProvider.ESA_HUBBLE)))
+        val hubbleOnly = setOf(AssetProvider.ESA_HUBBLE)
+        val hubbleCatalogue = populated.copy(selectionFingerprint = CatalogueRefresher.fingerprintOf(selection, hubbleOnly))
+        assertFalse(RefreshCoordinator.isStale(hubbleCatalogue, 1 * hour, selection, hubbleOnly))
+    }
+
+    @Test
+    fun refreshesImmediatelyWhenTheEnabledSourcesChange() {
+        assertTrue(RefreshCoordinator.isStale(populated, 1 * hour, selection, all - AssetProvider.ESA_WEBB))
     }
 
     @Test

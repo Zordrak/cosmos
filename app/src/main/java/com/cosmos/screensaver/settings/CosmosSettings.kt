@@ -52,6 +52,22 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         editor.apply()
     }
 
+    /**
+     * How much space the saved pictures may use, in bytes; 0 means Automatic. Not a viewing choice,
+     * so Reset leaves it alone. Anything that is not an allowed choice reads as Automatic.
+     */
+    var cacheLimitBytes: Long
+        get() = preferences.getLong(KEY_CACHE_LIMIT, 0L).takeIf { it in CACHE_LIMIT_CHOICES } ?: 0L
+        set(value) {
+            require(value in CACHE_LIMIT_CHOICES)
+            preferences.edit().putLong(KEY_CACHE_LIMIT, value).apply()
+        }
+
+    /** Which source gets first call on the next refresh, so a full library serves every source in turn. */
+    var refreshCursor: Int
+        get() = preferences.getInt(KEY_REFRESH_CURSOR, 0).coerceAtLeast(0)
+        set(value) = preferences.edit().putInt(KEY_REFRESH_CURSOR, value.coerceAtLeast(0)).apply()
+
     /** Streams every image instead of using the cache; the cache is left untouched. */
     var streamOnly: Boolean
         get() = preferences.getBoolean(KEY_STREAM_ONLY, false)
@@ -116,6 +132,12 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         val DEFAULT_LICENCE_MODE = LicenceMode.ANY_AVAILABLE
         val DEFAULT_COLLECTION = CollectionPreset.EVERYTHING
         val INTERVAL_CHOICES_SECONDS = listOf(15, 30, 60, 120, 300, 600, 1800)
+        private const val KEY_CACHE_LIMIT = "cache_limit_bytes"
+        private const val KEY_REFRESH_CURSOR = "refresh_cursor"
+        private const val MIB = 1024L * 1024
+
+        /** 0 is Automatic (up to 2 GiB, as free space allows). */
+        val CACHE_LIMIT_CHOICES = listOf(0L, 512 * MIB, 1024 * MIB, 2048 * MIB, 4096 * MIB, 8192 * MIB, 16384 * MIB)
 
         /**
          * Every preference key that is a viewing choice. Later steps that add a viewing choice

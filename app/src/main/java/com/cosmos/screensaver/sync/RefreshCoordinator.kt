@@ -30,9 +30,6 @@ internal object RefreshCoordinator {
     private const val TAG = "CosmosRefresh"
     private const val STALE_AFTER_MILLIS = 20L * 60 * 60 * 1000
     private const val EMPTY_RETRY_AFTER_MILLIS = 10L * 60 * 1000
-    private const val MAX_LIBRARY_BYTES = 2L * 1024 * 1024 * 1024
-    private const val MIN_FREE_BYTES = 3L * 1024 * 1024 * 1024
-    private const val MIN_FREE_FRACTION = 0.15
     private const val MIN_USEFUL_BUDGET_BYTES = 50L * 1024 * 1024
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
@@ -53,25 +50,30 @@ internal object RefreshCoordinator {
      */
     fun store(context: Context): CatalogueStore = LibraryStorage.store(context)
 
-    /**
-     * Bytes the library may occupy: up to [MAX_LIBRARY_BYTES], but never so much that free space
-     * drops below the larger of [MIN_FREE_BYTES] and [MIN_FREE_FRACTION] of the storage.
-     */
-    fun storageBudget(context: Context, usedBytes: Long): Long = try {
+    /** What the device reports for the storage holding the saved pictures, or Unknown if the probe fails. */
+    fun measure(context: Context): StorageMeasurement = try {
         val stat = StatFs(context.applicationContext.filesDir.path)
-        val reserve = maxOf(MIN_FREE_BYTES, (stat.totalBytes * MIN_FREE_FRACTION).toLong())
-        minOf(MAX_LIBRARY_BYTES, usedBytes + stat.availableBytes - reserve).coerceAtLeast(0L)
+        StorageMeasurement.Known(stat.totalBytes, stat.availableBytes)
     } catch (error: IllegalArgumentException) {
         Log.w(TAG, "Unable to read free space", error)
-        MAX_LIBRARY_BYTES
+        StorageMeasurement.Unknown
     }
 
-    /** True when there is too little free space to keep a useful library. */
+    /**
+     * The budget for the saved pictures given the bytes Cosmos could give back ([ownedBytes]): the
+     * owner's chosen size (or Automatic), never so much that free space drops below the reserve.
+     */
+    fun budget(context: Context, ownedBytes: Long): CacheBudget =
+        CacheBudget.compute(measure(context), CosmosSettings(context).cacheLimitBytes, ownedBytes)
+
+    /** True when there is too little free space to keep a useful library. Unknown is not "low". */
     fun lowOnSpace(context: Context, store: CatalogueStore): Boolean =
         lowOnSpace(context, SelectionSnapshot.physicalBytes(store.load().entries))
 
-    fun lowOnSpace(context: Context, usedBytes: Long): Boolean =
-        storageBudget(context, usedBytes) < MIN_USEFUL_BUDGET_BYTES
+    fun lowOnSpace(context: Context, usedBytes: Long): Boolean {
+        val budget = budget(context, usedBytes)
+        return budget.known && budget.budgetBytes < MIN_USEFUL_BUDGET_BYTES
+    }
 
     /**
      * A refresh is due when the image settings changed, after [STALE_AFTER_MILLIS], or after
@@ -87,7 +89,7 @@ internal object RefreshCoordinator {
     ): Boolean {
         val sinceAttempt = now - catalogue.lastAttemptAtEpochMillis
         if (sinceAttempt < 0) return true
-        if (catalogue.selectionFingerprint != selection.fingerprint) return true
+        if (catalogue.selectionFingerprint != CatalogueRefresher.fingerprintOf(selection, enabledProviders)) return true
         val showable = SelectionSnapshot.build(catalogue.entries, selection, enabledProviders, state).eligible
         return if (showable.isEmpty()) {
             sinceAttempt >= EMPTY_RETRY_AFTER_MILLIS
@@ -143,7 +145,8 @@ internal object RefreshCoordinator {
         context: Context,
         store: CatalogueStore,
         userState: UserStateStore,
-        budgetFor: (usedBytes: Long) -> Long
+        budgetFor: (usedBytes: Long) -> CacheBudget,
+        startIndex: Int = 0
     ): CatalogueRefresher {
         val settings = CosmosSettings(context)
         return CatalogueRefresher(
@@ -154,21 +157,24 @@ internal object RefreshCoordinator {
             territory = deviceTerritory(),
             adapters = Sources.adapters(settings.enabledProviders),
             selection = settings.selection,
-            budgetFor = budgetFor
+            budgetFor = budgetFor,
+            startIndex = startIndex
         )
     }
 
-    /** Bytes available on the device's storage right now. */
-    fun freeBytes(context: Context): Long = try {
-        StatFs(context.applicationContext.filesDir.path).availableBytes
-    } catch (error: IllegalArgumentException) {
-        Long.MAX_VALUE
-    }
+    /** Bytes available on the device's storage right now, or null when they cannot be read. */
+    fun freeBytes(context: Context): Long? =
+        (measure(context) as? StorageMeasurement.Known)?.availableBytes
 
     private fun runOnce(appContext: Context, store: CatalogueStore): RefreshResult? {
+        val settings = CosmosSettings(appContext)
+        val cursor = settings.refreshCursor
         return try {
-            createRefresher(appContext, store, LibraryStorage.userState(appContext)) { used -> storageBudget(appContext, used) }
-                .refresh().also { Log.i(TAG, it.summary) }
+            createRefresher(appContext, store, LibraryStorage.userState(appContext), { used -> budget(appContext, used) }, cursor)
+                .refresh().also {
+                    settings.refreshCursor = cursor + 1
+                    Log.i(TAG, it.summary)
+                }
         } catch (error: Exception) {
             Log.e(TAG, "Refresh failed", error)
             runCatching {

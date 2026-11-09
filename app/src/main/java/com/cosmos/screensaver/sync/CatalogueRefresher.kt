@@ -57,15 +57,21 @@ internal data class RefreshResult(
     val withdrawn: Int,
     val total: Int,
     val errors: List<String>,
-    val lowSpace: Boolean = false
+    val space: SpaceStatus = SpaceStatus()
 ) {
+    /** The device is short of space (kept for callers that only care about streaming). */
+    val lowSpace: Boolean get() = space.devicePressure
+
     val summary: String
         get() = buildString {
             append("$total images available. This refresh added $admitted")
             if (rejected > 0) append(", skipped $rejected")
             if (withdrawn > 0) append(", withdrew $withdrawn")
             append('.')
-            if (lowSpace) append(" Not enough free space to keep a library; images are streamed instead.")
+            if (space.devicePressure) append(" Not enough free space to keep a library; images are streamed instead.")
+            if (space.favouritesPreventSaving) append(" Favourites fill the space for pictures, so no new pictures were saved.")
+            if (space.userLimitFull) append(" The space for pictures is full.")
+            if (space.measurementUnavailable) append(" Storage information unavailable; nothing was saved or removed.")
             if (errors.isNotEmpty()) append(" Problems: ").append(errors.joinToString("; "))
         }
 }
@@ -91,17 +97,22 @@ internal class CatalogueRefresher(
     private val clock: () -> Long = System::currentTimeMillis,
     private val random: Random = Random.Default,
     private val limits: Limits = Limits(),
-    /** Maximum bytes the library may occupy, given the bytes it occupies now. */
-    private val budgetFor: (usedBytes: Long) -> Long = { Long.MAX_VALUE }
+    /** The budget for the library, given the bytes it (plus any file being added) occupies now. */
+    private val budgetFor: (usedBytes: Long) -> CacheBudget = { CacheBudget.fixed(Long.MAX_VALUE) },
+    /** Index into the provider-ordered sources at which this refresh starts, so every source gets a turn. */
+    private val startIndex: Int = 0
 ) {
     data class Limits(
-        val maxEntries: Int = 150,
         val maxLeadsPerSource: Int = 60,
         val maxAdmissionsPerSource: Int = 8,
         /** Once the library is full, each refresh swaps in at most this many new images. */
         val maxAdmissionsWhenFull: Int = 15,
         val minBudgetBytes: Long = 50L * 1024 * 1024,
         val downloadReserveBytes: Long = 12L * 1024 * 1024,
+        /** Free space that must remain after a download is written. */
+        val headroomFloorBytes: Long = 90L * 1024 * 1024,
+        /** A download is not started when less than this may be written. */
+        val minDownloadBytes: Long = 1L * 1024 * 1024,
         val rejectionRetryMillis: Long = 30L * 24 * 60 * 60 * 1000,
         /** Saved pictures screened against the current content rules per refresh, one request each. */
         val maxRechecksPerRefresh: Int = 60
@@ -111,7 +122,7 @@ internal class CatalogueRefresher(
         data class Admitted(val entry: CatalogueEntry) : Outcome
         data class Rejected(val reason: String) : Outcome
         data class Failed(val reason: String) : Outcome
-        data object NoSpace : Outcome
+        data class NoSpace(val reason: NoRoomReason) : Outcome
         data class Stored(
             val fileName: String,
             val sha256: String,
@@ -147,12 +158,19 @@ internal class CatalogueRefresher(
     private val policies = mutableMapOf<DjangoplicitySite, PolicyState>()
     private var withdrawnCount = 0
 
+    /** Starts the walk through the sources at [startIndex], wrapping round, so none is always last. */
+    private fun rotated(sorted: List<SourceAdapter>): List<SourceAdapter> {
+        if (sorted.isEmpty()) return sorted
+        val offset = Math.floorMod(startIndex, sorted.size)
+        return sorted.drop(offset) + sorted.take(offset)
+    }
+
     fun refresh(): RefreshResult {
         val startedAt = clock()
         val initial = store.loadStrict()
         // An unreadable list of blocked pictures must stop a refresh, not let them back in.
         userState.loadStrict()
-        val fingerprint = selection.fingerprint
+        val fingerprint = fingerprintOf(selection, providers)
         val selectionChanged = initial.selectionFingerprint != fingerprint
         store.imagesDirectory.mkdirs()
 
@@ -166,21 +184,22 @@ internal class CatalogueRefresher(
         var admitted = 0
         var rejected = 0
         var anySourceReached = false
-        var lowSpace = false
+        var space = SpaceStatus()
 
         withdrawnCount += LibraryMaintenance.screenLocal(store, userState).removed
 
         val entriesAtStart = store.loadStrict().entries
         val usedAtStart = SelectionSnapshot.physicalBytes(entriesAtStart)
         val budgetAtStart = budgetFor(usedAtStart)
-        if (budgetAtStart < limits.minBudgetBytes) {
-            lowSpace = true
+        if (!budgetAtStart.known) {
+            space = SpaceStatus(measurementUnavailable = true)
+        } else if (budgetAtStart.budgetBytes < limits.minBudgetBytes) {
+            space = SpaceStatus(devicePressure = true)
         } else {
             recheckSavedPictures(newRejections, rejections)
-            val full = SelectionSnapshot.physicalFiles(store.loadStrict().entries) >= limits.maxEntries ||
-                usedAtStart + limits.downloadReserveBytes > budgetAtStart
+            val full = usedAtStart + limits.downloadReserveBytes > budgetAtStart.budgetBytes
             var runAdmissions = 0
-            sources@ for (adapter in adapters.sortedBy { it.provider.ordinal }) {
+            sources@ for (adapter in rotated(adapters.sortedBy { it.provider.ordinal })) {
                 val site = DjangoplicitySite.entries.firstOrNull { it.provider == adapter.provider }
                 if (site != null && selection.licenceMode == LicenceMode.OPEN_LICENCE_ONLY) {
                     when (val state = policyFor(site)) {
@@ -241,8 +260,9 @@ internal class CatalogueRefresher(
                             rejected++
                         }
                         is Outcome.Failed -> errors += "${lead.id}: ${outcome.reason}"
-                        Outcome.NoSpace -> {
-                            lowSpace = true
+                        is Outcome.NoSpace -> {
+                            space = SpaceStatus.of(outcome.reason)
+                            if (outcome.reason == NoRoomReason.UNREADABLE) errors += "saved pictures could not be read"
                             break@sources
                         }
                         is Outcome.Stored -> error("admit() never returns Stored")
@@ -252,7 +272,7 @@ internal class CatalogueRefresher(
         }
 
         val finishedAt = clock()
-        val partial = RefreshResult(admitted, rejected, withdrawnCount, 0, errors.distinct().take(4), lowSpace)
+        val partial = RefreshResult(admitted, rejected, withdrawnCount, 0, errors.distinct().take(4), space)
         val saved = store.update { current ->
             // Only this refresh's own decisions are applied; admissions, removals and blocks made
             // meanwhile (by this refresh or by the user) are already in [current] and are kept.
@@ -647,16 +667,22 @@ internal class CatalogueRefresher(
     }
 
     private fun download(candidate: Candidate, key: String, option: RenditionOption, required: Resolution?): Outcome {
-        if (!makeRoom(min(option.maxBytes, limits.downloadReserveBytes))) return Outcome.NoSpace
+        val room = makeRoom(min(option.maxBytes, limits.downloadReserveBytes))
+        if (room is Room.Full) return Outcome.NoSpace(room.reason)
+        // Never let one write take the device below the headroom floor, whatever the library's own budget says.
+        val writable = (room as Room.Ok).freeBytes.let { if (it == Long.MAX_VALUE) it else it - limits.headroomFloorBytes }
+        if (writable < limits.minDownloadBytes) return Outcome.NoSpace(NoRoomReason.DEVICE_PRESSURE)
+        val allowedBytes = min(option.maxBytes, writable)
         val temporary = File(store.imagesDirectory, "download-${UUID.randomUUID()}.part")
         LibraryMaintenance.claim(temporary)
         var claimedTarget: File? = null
         var stored = false
         try {
             val download = try {
-                fetcher.download(option.url, temporary, option.maxBytes)
+                fetcher.download(option.url, temporary, allowedBytes)
             } catch (error: ResourceTooLargeException) {
-                return Outcome.Rejected(IMAGE_TOO_LARGE)
+                return if (allowedBytes < option.maxBytes) Outcome.NoSpace(NoRoomReason.DEVICE_PRESSURE)
+                else Outcome.Rejected(IMAGE_TOO_LARGE)
             } catch (error: IOException) {
                 return Outcome.Failed("download failed (${error.describe()})")
             }
@@ -698,7 +724,10 @@ internal class CatalogueRefresher(
             val target = File(store.imagesDirectory, fileName)
             val alreadySaved = target.isFile
             // The bytes are only on disk once; a second picture with identical bytes shares the file.
-            if (!alreadySaved && !makeRoom(0L, onDiskBytes = download.byteCount)) return Outcome.NoSpace
+            if (!alreadySaved) {
+                val room = makeRoom(0L, onDiskBytes = download.byteCount)
+                if (room is Room.Full) return Outcome.NoSpace(room.reason)
+            }
             LibraryMaintenance.claim(target)
             claimedTarget = target
             if (alreadySaved && target.length() == download.byteCount && sha256Of(target) == download.sha256) {
@@ -717,36 +746,32 @@ internal class CatalogueRefresher(
         }
     }
 
+    private sealed interface Room {
+        data class Ok(val freeBytes: Long) : Room
+        data class Full(val reason: NoRoomReason) : Room
+    }
+
     /**
      * Evicts whole pictures, those that no longer qualify first and then the oldest, until
-     * [needBytes] more fit in the budget and the library has a free slot. Favourites are never
-     * evicted; when only favourites remain this reports no room. [onDiskBytes] is a downloaded
-     * file that is not in the catalogue yet, but already occupies space.
+     * [needBytes] more fit in the budget. Favourites are never evicted; when only favourites
+     * remain, or the free space cannot be measured, this says why instead of a generic "no space".
+     * [onDiskBytes] is a downloaded file that is not in the catalogue yet, but already occupies space.
      */
-    private fun makeRoom(needBytes: Long, onDiskBytes: Long = 0L): Boolean {
-        val state = try {
-            userState.loadStrict()
-        } catch (error: IOException) {
-            return false
+    private fun makeRoom(needBytes: Long, onDiskBytes: Long = 0L): Room {
+        var latest = CacheBudget.UNKNOWN
+        val result = CacheTrimmer.evictUntil(store, userState, selection, providers) { saved ->
+            val used = saved + onDiskBytes
+            latest = budgetFor(used)
+            // An unknown measurement stops eviction: never delete on a guess.
+            !latest.known || used + needBytes <= latest.budgetBytes
         }
-        while (true) {
-            val entries = try {
-                store.loadStrict().entries
-            } catch (error: IOException) {
-                return false
-            }
-            val used = SelectionSnapshot.physicalBytes(entries) + onDiskBytes
-            if (SelectionSnapshot.physicalFiles(entries) < limits.maxEntries && used + needBytes <= budgetFor(used)) {
-                return true
-            }
-            val eligible = SelectionSnapshot.build(entries, selection, providers, state).eligibleIdentities
-            val favourites = entries.filter { state.isFavourite(it.sha256) }.map(SelectionSnapshot::identity).toSet()
-            val victim = entries.groupBy(SelectionSnapshot::identity)
-                .filterKeys { it !in favourites }
-                .entries
-                .sortedWith(compareBy({ it.key in eligible }, { group -> group.value.minOf { it.admittedAtEpochMillis } }))
-                .firstOrNull() ?: return false
-            if (LibraryMaintenance.evict(store, victim.key) == 0) return false
+        return when {
+            result.unreadable -> Room.Full(NoRoomReason.UNREADABLE)
+            !latest.known -> Room.Full(NoRoomReason.UNAVAILABLE)
+            result.satisfied -> Room.Ok(latest.freeBytes)
+            latest.devicePressure || latest.spaceConstrained -> Room.Full(NoRoomReason.DEVICE_PRESSURE)
+            result.protectedRemain -> Room.Full(NoRoomReason.FAVOURITES)
+            else -> Room.Full(NoRoomReason.USER_LIMIT)
         }
     }
 
@@ -772,6 +797,10 @@ internal class CatalogueRefresher(
         const val FAVOURITE_KEPT = "FAVOURITE_KEPT"
         private const val HEADER_BYTES = 32
         private const val MAX_STREAM_PROBES = 12
+
+        /** What the saved library was last refreshed for: the image rules and which sources are on. */
+        internal fun fingerprintOf(selection: ImageSelection, providers: Set<AssetProvider>): String =
+            selection.fingerprint + "|" + providers.map { it.name }.sorted().joinToString(",")
 
         /** Rejections that a changed selection or policy could overturn. */
         internal fun isSettingsDependent(reason: String) =
