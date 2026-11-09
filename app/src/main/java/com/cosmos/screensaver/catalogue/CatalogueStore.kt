@@ -8,65 +8,124 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 
+/** The library cannot be read or written safely; nothing has been changed on disk. */
+internal class LibraryUnavailableException(message: String) : IOException(message)
+
+/** A catalogue written by a newer format; never treated as empty. */
+internal class UnsupportedFormatException(message: String) : JSONException(message)
+
 /**
- * Stores the catalogue as a single JSON document in app-private storage. Writes are atomic
- * (temporary file then rename), and all access in the process is serialised.
+ * Stores the catalogue as a single JSON document in app-private storage ([directory] is the
+ * app data directory for the saved library). Writes are crash-safe with a retained last-good
+ * copy ([AtomicJsonFile]); all access in the process shares one short lock ([withLock]).
+ *
+ * [load] is for display and playback: an unreadable library looks empty there. Every mutation
+ * ([update], [save], [remove], [clear]) and [loadStrict] refuses to run on an unreadable or
+ * unsupported library, so damaged state is never overwritten or cleaned up as if it were empty.
+ * [unavailableReason] (a failed migration) blocks all mutations the same way.
  */
-internal class CatalogueStore(directory: File) {
+internal class CatalogueStore(
+    val directory: File,
+    private val unavailableReason: String? = null,
+    private val ops: FileOps = FileOps.Real
+) {
     val imagesDirectory = File(directory, "images")
     private val file = File(directory, "catalogue.json")
 
     fun imageFile(entry: CatalogueEntry) = File(imagesDirectory, entry.fileName)
 
-    fun load(): Catalogue {
-        synchronized(LOCK) {
-            if (!file.exists()) return Catalogue()
-            return try {
-                CatalogueJson.decode(file.readText(Charsets.UTF_8))
+    /** Runs [block] under the one library lock shared by the catalogue, user state and Undo. */
+    fun <T> withLock(block: () -> T): T = synchronized(LOCK) { block() }
+
+    /** Catalogue for display and playback; an unreadable library yields an empty one. */
+    fun load(): Catalogue = (read() as? StoreRead.Ok)?.catalogue ?: Catalogue()
+
+    fun read(): StoreRead = synchronized(LOCK) {
+        if (unavailableReason != null) return StoreRead.Failed(unavailableReason)
+        var unsupported: String? = null
+        val result = AtomicJsonFile.read(file) { text ->
+            try {
+                CatalogueJson.decode(text)
+                true
+            } catch (error: UnsupportedFormatException) {
+                unsupported = error.message
+                false
             } catch (error: JSONException) {
-                Log.w(TAG, "Discarding unreadable catalogue", error)
-                Catalogue()
-            } catch (error: IOException) {
-                Log.w(TAG, "Unable to read catalogue", error)
-                Catalogue()
+                false
+            }
+        }
+        when (result) {
+            AtomicJsonFile.Read.Missing -> StoreRead.Ok(Catalogue())
+            is AtomicJsonFile.Read.Ok -> StoreRead.Ok(CatalogueJson.decode(result.text), result.recovered)
+            is AtomicJsonFile.Read.Unreadable -> {
+                Log.w(TAG, "Catalogue unreadable: ${result.reason}")
+                StoreRead.Failed(unsupported ?: result.reason, unsupported != null)
             }
         }
     }
 
-    fun save(catalogue: Catalogue) = synchronized(LOCK) {
-        file.parentFile?.mkdirs()
-        val temporary = File(file.parentFile, "${file.name}.tmp")
-        temporary.writeText(CatalogueJson.encode(catalogue), Charsets.UTF_8)
-        if (!temporary.renameTo(file)) {
-            file.delete()
-            if (!temporary.renameTo(file)) throw IOException("Unable to replace catalogue")
-        }
+    /** Like [load] but throws [LibraryUnavailableException] instead of returning an empty catalogue. */
+    @Throws(LibraryUnavailableException::class)
+    fun loadStrict(): Catalogue = when (val result = read()) {
+        is StoreRead.Ok -> result.catalogue
+        is StoreRead.Failed -> throw LibraryUnavailableException(result.reason)
     }
 
+    fun save(catalogue: Catalogue) = synchronized(LOCK) {
+        loadStrict()
+        write(catalogue)
+    }
+
+    private fun write(catalogue: Catalogue) = AtomicJsonFile.write(file, CatalogueJson.encode(catalogue), ops)
+
     fun update(transform: (Catalogue) -> Catalogue): Catalogue = synchronized(LOCK) {
-        val updated = transform(load())
-        save(updated)
+        val updated = transform(loadStrict())
+        write(updated)
         updated
     }
 
-    /** Removes an entry, e.g. after an integrity failure, and deletes its file. */
+    /**
+     * Removes an entry, e.g. after an integrity failure. Its file is deleted only when no
+     * other entry (an alias of identical bytes) still uses it.
+     */
     fun remove(key: String) = synchronized(LOCK) {
         update { catalogue ->
-            catalogue.entries.filter { it.key == key }.forEach { imageFile(it).delete() }
-            catalogue.copy(entries = catalogue.entries.filterNot { it.key == key })
+            val remaining = catalogue.entries.filterNot { it.key == key }
+            val stillUsed = remaining.map { it.fileName }.toSet()
+            catalogue.entries.filter { it.key == key && it.fileName !in stillUsed }.forEach { imageFile(it).delete() }
+            catalogue.copy(entries = remaining)
         }
     }
 
     /** Deletes every downloaded image and cached decision. */
     fun clear() = synchronized(LOCK) {
+        loadStrict()
         imagesDirectory.listFiles()?.forEach { it.delete() }
-        save(Catalogue())
+        write(Catalogue())
+    }
+
+    /**
+     * Sets aside an unreadable (corrupt, not merely newer-format) catalogue so a fresh one can
+     * start. The damaged file is kept next to it for recovery. Returns true when it did so.
+     */
+    fun quarantineCorrupt(now: Long = System.currentTimeMillis()): Boolean = synchronized(LOCK) {
+        val failed = read() as? StoreRead.Failed ?: return false
+        if (failed.unsupported || unavailableReason != null) return false
+        listOf(file, AtomicJsonFile.temporary(file), AtomicJsonFile.backup(file)).forEach { damaged ->
+            if (damaged.exists()) damaged.renameTo(File(damaged.parentFile, "${damaged.name}.corrupt-$now"))
+        }
+        true
     }
 
     companion object {
         private const val TAG = "CosmosCatalogue"
         private val LOCK = Any()
     }
+}
+
+internal sealed class StoreRead {
+    data class Ok(val catalogue: Catalogue, val recovered: Boolean = false) : StoreRead()
+    data class Failed(val reason: String, val unsupported: Boolean = false) : StoreRead()
 }
 
 internal object CatalogueJson {
@@ -90,7 +149,8 @@ internal object CatalogueJson {
 
     fun decode(text: String): Catalogue {
         val root = JSONObject(text)
-        if (root.optInt("formatVersion") != FORMAT_VERSION) return Catalogue()
+        val version = root.optInt("formatVersion", -1)
+        if (version != FORMAT_VERSION) throw UnsupportedFormatException("Catalogue format $version is not supported")
         val entriesJson = root.optJSONArray("entries") ?: JSONArray()
         val entries = (0 until entriesJson.length()).mapNotNull { index ->
             try {

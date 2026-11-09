@@ -131,7 +131,7 @@ internal class CatalogueRefresher(
 
     fun refresh(): RefreshResult {
         val startedAt = clock()
-        val initial = store.load()
+        val initial = store.loadStrict()
         val fingerprint = selection.fingerprint
         val selectionChanged = initial.selectionFingerprint != fingerprint
         store.imagesDirectory.mkdirs()

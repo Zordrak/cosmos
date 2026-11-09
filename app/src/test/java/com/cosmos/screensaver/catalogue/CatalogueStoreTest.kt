@@ -2,6 +2,9 @@ package com.cosmos.screensaver.catalogue
 
 import com.cosmos.screensaver.rights.AssetProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
 
@@ -50,8 +53,22 @@ class CatalogueStoreTest {
     }
 
     @Test
-    fun ignoresUnknownFormatVersions() {
-        assertEquals(Catalogue(), CatalogueJson.decode("""{"formatVersion": 99, "entries": []}"""))
+    fun rejectsUnknownFormatVersionsInsteadOfTreatingThemAsEmpty() {
+        assertThrows(UnsupportedFormatException::class.java) {
+            CatalogueJson.decode("""{"formatVersion": 99, "entries": []}""")
+        }
+        val directory = Files.createTempDirectory("cosmos-store").toFile()
+        try {
+            val text = """{"formatVersion": 99, "entries": []}"""
+            directory.resolve("catalogue.json").writeText(text)
+            val store = CatalogueStore(directory)
+            assertTrue((store.read() as StoreRead.Failed).unsupported)
+            assertThrows(LibraryUnavailableException::class.java) { store.update { it } }
+            assertFalse(store.quarantineCorrupt())
+            assertEquals(text, directory.resolve("catalogue.json").readText())
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 
     @Test
@@ -78,11 +95,94 @@ class CatalogueStoreTest {
     }
 
     @Test
-    fun startsEmptyWhenTheFileIsCorrupt() {
+    fun removingAnAliasKeepsAFileAnotherAliasStillUses() {
+        val directory = Files.createTempDirectory("cosmos-store").toFile()
+        try {
+            val store = CatalogueStore(directory)
+            val first = entry("heic9901a")
+            val alias = first.copy(provider = AssetProvider.NASA, providerId = "PIA1")
+            store.imagesDirectory.mkdirs()
+            store.imageFile(first).writeText("x")
+            store.save(Catalogue(entries = listOf(first, alias)))
+
+            store.remove(first.key)
+
+            assertTrue(store.imageFile(first).exists())
+            assertEquals(listOf(alias.key), store.load().entries.map { it.key })
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun corruptFileIsNotAnEmptySuccess() {
         val directory = Files.createTempDirectory("cosmos-store").toFile()
         try {
             directory.resolve("catalogue.json").writeText("{not json")
-            assertEquals(Catalogue(), CatalogueStore(directory).load())
+            val store = CatalogueStore(directory)
+
+            assertEquals(Catalogue(), store.load())
+            assertThrows(LibraryUnavailableException::class.java) { store.loadStrict() }
+            assertThrows(LibraryUnavailableException::class.java) { store.save(Catalogue()) }
+            assertThrows(LibraryUnavailableException::class.java) { store.clear() }
+            assertEquals("{not json", directory.resolve("catalogue.json").readText())
+
+            assertTrue(store.quarantineCorrupt(7L))
+            assertEquals(Catalogue(), store.loadStrict())
+            assertTrue(directory.resolve("catalogue.json.corrupt-7").exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun recoversTheLastGoodCopyWhenTheCurrentFileIsDamaged() {
+        val directory = Files.createTempDirectory("cosmos-store").toFile()
+        try {
+            val store = CatalogueStore(directory)
+            store.save(Catalogue(entries = listOf(entry("heic9901a"))))
+            store.save(Catalogue(entries = listOf(entry("heic9901a"), entry("heic9902a"))))
+            directory.resolve("catalogue.json").writeText("{torn")
+
+            val read = store.read() as StoreRead.Ok
+            assertTrue(read.recovered)
+            assertEquals(listOf("heic9901a"), read.catalogue.entries.map { it.providerId })
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun aFailedWriteLeavesThePreviousCatalogueIntact() {
+        val directory = Files.createTempDirectory("cosmos-store").toFile()
+        try {
+            CatalogueStore(directory).save(Catalogue(entries = listOf(entry("heic9901a"))))
+            var failedOnce = false
+            val failing = CatalogueStore(directory, ops = object : FileOps by FileOps.Real {
+                override fun rename(from: java.io.File, to: java.io.File): Boolean {
+                    if (to.name == "catalogue.json" && !failedOnce) {
+                        failedOnce = true
+                        return false
+                    }
+                    return from.renameTo(to)
+                }
+            })
+
+            assertThrows(java.io.IOException::class.java) { failing.save(Catalogue(entries = listOf(entry("heic9902a")))) }
+
+            assertEquals(listOf("heic9901a"), CatalogueStore(directory).loadStrict().entries.map { it.providerId })
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun aMigrationFailureBlocksMutationsAndLeavesReadsEmpty() {
+        val directory = Files.createTempDirectory("cosmos-store").toFile()
+        try {
+            val store = CatalogueStore(directory, unavailableReason = "boom")
+            assertEquals(Catalogue(), store.load())
+            assertThrows(LibraryUnavailableException::class.java) { store.update { it } }
         } finally {
             directory.deleteRecursively()
         }

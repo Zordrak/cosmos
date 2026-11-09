@@ -43,26 +43,19 @@ internal object RefreshCoordinator {
 
     val isRunning: Boolean get() = gate.isRunning
 
-    /** The library lives in the cache directory: it is re-downloadable, and the system may reclaim it. */
-    fun store(context: Context): CatalogueStore {
-        val appContext = context.applicationContext
-        removeLegacyStorage(appContext)
-        return CatalogueStore(appContext.cacheDir)
-    }
-
-    private fun removeLegacyStorage(context: Context) {
-        val legacyImages = File(context.filesDir, "images")
-        val legacyCatalogue = File(context.filesDir, "catalogue.json")
-        if (legacyImages.exists()) legacyImages.deleteRecursively()
-        if (legacyCatalogue.exists()) legacyCatalogue.delete()
-    }
+    /**
+     * The saved pictures live in app data (not the cache directory): they are user data -
+     * favourites, the blocklist and a multi-GB download - and "Clear cache" or system cache
+     * reclaim must not remove them. Waits for the one-time migration from the old cache location.
+     */
+    fun store(context: Context): CatalogueStore = LibraryStorage.store(context)
 
     /**
      * Bytes the library may occupy: up to [MAX_LIBRARY_BYTES], but never so much that free space
      * drops below the larger of [MIN_FREE_BYTES] and [MIN_FREE_FRACTION] of the storage.
      */
     fun storageBudget(context: Context, usedBytes: Long): Long = try {
-        val stat = StatFs(context.applicationContext.cacheDir.path)
+        val stat = StatFs(context.applicationContext.filesDir.path)
         val reserve = maxOf(MIN_FREE_BYTES, (stat.totalBytes * MIN_FREE_FRACTION).toLong())
         minOf(MAX_LIBRARY_BYTES, usedBytes + stat.availableBytes - reserve).coerceAtLeast(0L)
     } catch (error: IllegalArgumentException) {
@@ -156,7 +149,7 @@ internal object RefreshCoordinator {
 
     /** Bytes available on the device's storage right now. */
     fun freeBytes(context: Context): Long = try {
-        StatFs(context.applicationContext.cacheDir.path).availableBytes
+        StatFs(context.applicationContext.filesDir.path).availableBytes
     } catch (error: IllegalArgumentException) {
         Long.MAX_VALUE
     }
