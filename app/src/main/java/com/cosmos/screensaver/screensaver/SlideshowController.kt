@@ -37,7 +37,9 @@ import kotlin.random.Random
  */
 internal class SlideshowController(
     private val context: Context,
-    private val view: SlideshowView
+    private val view: SlideshowView,
+    /** Shows each picture at the panel's native resolution underneath [view], when the TV supports it. */
+    private val sharp: SharpLayer? = null
 ) {
     private val settings = CosmosSettings(context)
     private val store = RefreshCoordinator.store(context)
@@ -58,6 +60,11 @@ internal class SlideshowController(
     private val freshness = DreamFreshness { SystemClock.elapsedRealtime() }
     private var startedAtMillis = 0L
     private val advanceTask = Runnable { advance() }
+
+    /** Numbers each picture as the worker prepares it, so its native-resolution copy finds the right slide. */
+    private var preparedSeq = 0L
+    private var shownSeq = 0L
+    private var shownToken = 0L
 
     fun start() {
         if (worker != null) return
@@ -132,17 +139,45 @@ internal class SlideshowController(
         }
     }
 
-    /** Shows [frame] on the main thread unless this session has ended meanwhile. */
-    private fun postFrame(gen: Int, frame: Frame, attribution: Attribution, onShown: () -> Unit) {
+    /** Shows [frame] on the main thread unless this session has ended meanwhile. Returns the picture's sequence number. */
+    private fun postFrame(gen: Int, frame: Frame, attribution: Attribution, onShown: () -> Unit): Long {
+        val seq = ++preparedSeq
         mainHandler.post {
             if (gen != generation) {
                 frame.bitmap.recycle()
                 return@post
             }
-            view.show(frame, attribution) {
+            shownToken = view.show(frame, attribution) {
                 firstPictureShown()
                 onShown()
             }
+            shownSeq = seq
+        }
+        return seq
+    }
+
+    /**
+     * Decodes picture [seq] again at the panel's native size and hands it to [sharp]. Runs on the worker
+     * after the picture was posted; it is dropped if another picture has been shown meanwhile.
+     */
+    private fun sharpen(gen: Int, seq: Long, file: File, entry: CatalogueEntry) {
+        val layer = sharp?.takeIf { it.usable } ?: return
+        val place = placement(
+            settings.displayMode, entry.widthPx, entry.heightPx, layer.frameWidth, layer.frameHeight, layer.frameWidth
+        )
+        val bitmap = try {
+            decode(file, place)
+        } catch (error: OutOfMemoryError) {
+            Log.w(TAG, "Not enough memory for a native-resolution copy of ${entry.key}", error)
+            null
+        } ?: return
+        mainHandler.post {
+            if (gen != generation || shownSeq != seq || !view.covered(shownToken)) {
+                bitmap.recycle()
+                return@post
+            }
+            val token = shownToken
+            layer.present(bitmap, place.destination) { view.sharpShown(token) }
         }
     }
 
@@ -195,7 +230,7 @@ internal class SlideshowController(
             val frame = frameFor(streamer.file(entry), entry) ?: return false
             val attribution = Attribution.of(entry)
             val library = store.load().entries.map(SelectionSnapshot::identity).toSet()
-            postFrame(gen, frame, attribution) {
+            val seq = postFrame(gen, frame, attribution) {
                 commitDisplay(gen, entry.sha256, library) { state ->
                     state.copy(
                         streamOrder = StreamQueue.withAccepted(
@@ -204,6 +239,7 @@ internal class SlideshowController(
                     )
                 }
             }
+            sharpen(gen, seq, streamer.file(entry), entry)
             return true
         } finally {
             streamer.discard(entry)
@@ -247,9 +283,10 @@ internal class SlideshowController(
                 return@repeat
             }
             val attribution = Attribution.of(entry)
-            postFrame(gen, frame, attribution) {
+            val seq = postFrame(gen, frame, attribution) {
                 commitDisplay(gen, pick.hash, library) { state -> state.copy(cachedOrder = pick.next) }
             }
+            sharpen(gen, seq, store.imageFile(entry), entry)
             return true
         }
         return false

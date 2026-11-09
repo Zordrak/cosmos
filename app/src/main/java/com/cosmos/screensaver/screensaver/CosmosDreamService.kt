@@ -7,6 +7,7 @@ import android.util.Log
 
 class CosmosDreamService : DreamService() {
     private var controller: SlideshowController? = null
+    private var stage: SlideshowStage? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -16,10 +17,11 @@ class CosmosDreamService : DreamService() {
         isFullscreen = true
         // Whatever is behind the picture while it loads must be plain black, never a themed colour.
         window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
-        val view = SlideshowView(this)
-        setContentView(view)
-        controller = SlideshowController(this, view)
-        Log.i(TAG, "Dream window attached")
+        val created = SlideshowStage.create(this)
+        stage = created
+        setContentView(created.root)
+        controller = created.controller(this)
+        Log.i(TAG, "Dream window attached (native-resolution layer: ${created.sharp?.let { "${it.frameWidth}x${it.frameHeight}" } ?: "none"})")
     }
 
     override fun onDreamingStarted() {
@@ -38,6 +40,8 @@ class CosmosDreamService : DreamService() {
         Log.i(TAG, "Dream window detached")
         controller?.stop()
         controller = null
+        stage?.release()
+        stage = null
         super.onDetachedFromWindow()
     }
 

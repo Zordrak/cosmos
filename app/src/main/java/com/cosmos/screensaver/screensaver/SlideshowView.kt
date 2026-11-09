@@ -22,17 +22,24 @@ import com.cosmos.screensaver.settings.CaptionMode
  * Cross-fades between pre-placed [Frame]s and draws the caption chosen in settings. The surface
  * buffer matches the display's logical size (see [nativeSize] for why never more).
  */
-internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
+internal class SlideshowView @JvmOverloads constructor(context: Context, private val overlay: Boolean = false) : SurfaceView(context), SurfaceHolder.Callback {
     private class Slide(
         val frame: Frame,
         val attribution: Attribution,
         val captionOnLeft: Boolean,
+        val token: Long,
         /** Runs once, after a frame in which this slide is visibly (nonzero alpha) posted to the screen. */
         var onPosted: (() -> Unit)? = null
     ) {
         /** Uptime when the picture first became drawable; unset until a surface can actually show it. */
         var shownAt = UNSET
         var captionAlphaWhenReplaced = 0f
+
+        /** The native-resolution layer underneath now shows this picture. */
+        var sharpReady = false
+
+        /** Uptime when this layer's copy of the picture started fading away to reveal that layer. */
+        var uncoverAt = UNSET
     }
 
     private fun elapsed(slide: Slide, now: Long): Long = if (slide.shownAt == UNSET) 0L else now - slide.shownAt
@@ -82,6 +89,8 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
     private var lowResolution = false
     private var hardwareCanvasFailed = false
     private var frameLoopRunning = false
+    private var tokens = 0L
+    private val coverPaint = Paint().apply { color = Color.BLACK }
 
     private val frameCallback = Choreographer.FrameCallback {
         frameLoopRunning = false
@@ -92,7 +101,13 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
 
     init {
         holder.addCallback(this)
-        holder.setFormat(PixelFormat.RGBX_8888)
+        if (overlay) {
+            // Above the native-resolution layer, below nothing else; transparent where uncovered.
+            setZOrderMediaOverlay(true)
+            holder.setFormat(PixelFormat.TRANSLUCENT)
+        } else {
+            holder.setFormat(PixelFormat.RGBX_8888)
+        }
     }
 
     /**
@@ -156,20 +171,36 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
 
     /**
      * [onPosted] runs once on the main thread after the surface has really received a frame in which this
-     * picture is visible. It never runs if the picture is replaced first or the view detaches.
+     * picture is visible. It never runs if the picture is replaced first or the view detaches. Returns a
+     * token identifying this picture for [sharpShown].
      */
-    fun show(frame: Frame, attribution: Attribution, onPosted: (() -> Unit)? = null) {
+    fun show(frame: Frame, attribution: Attribution, onPosted: (() -> Unit)? = null): Long {
         val now = SystemClock.uptimeMillis()
         previous?.frame?.bitmap?.takeIf { it !== current?.frame?.bitmap }?.recycle()
         current?.let { it.captionAlphaWhenReplaced = captionAlpha(it, now) }
         previous = current
         captionOnLeft = !captionOnLeft
-        val slide = Slide(frame, attribution, captionOnLeft, onPosted)
+        val slide = Slide(frame, attribution, captionOnLeft, ++tokens, onPosted)
         current = slide
         mainHandler.removeCallbacks(captionFadeStarter)
         if (surfaceReady) startClock(slide, now)
         requestDraw()
+        return slide.token
     }
+
+    /**
+     * The native-resolution layer underneath now shows the picture [token]. Once its cross-fade is
+     * over, this layer's own (upscaled) copy fades away to reveal it; captions stay on this layer.
+     */
+    fun sharpShown(token: Long) {
+        val slide = current ?: return
+        if (slide.token != token || !overlay) return
+        slide.sharpReady = true
+        requestDraw()
+    }
+
+    /** True once the native-resolution layer may be changed without it being seen. */
+    fun covered(token: Long): Boolean = current?.token == token
 
     override fun onDetachedFromWindow() {
         mainHandler.removeCallbacks(captionFadeStarter)
@@ -194,7 +225,18 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         if (slide.shownAt == UNSET) return false
         val elapsed = elapsed(slide, now)
         if (elapsed < FADE_MILLIS) return true
+        if (slide.sharpReady && (slide.uncoverAt == UNSET || now - slide.uncoverAt < UNCOVER_MILLIS)) return true
         return captionMode == CaptionMode.SUBTLE && elapsed in SUBTLE_HOLD_MILLIS until SUBTLE_HOLD_MILLIS + CAPTION_FADE_MILLIS
+    }
+
+    /**
+     * How much of this layer's own picture (and black backing) is shown: 1 until the native-resolution
+     * layer shows the same picture and the cross-fade is over, then fading to 0. Always 1 without that layer.
+     */
+    private fun cover(slide: Slide, now: Long): Float {
+        if (!overlay || !slide.sharpReady || elapsed(slide, now) < FADE_MILLIS) return 1f
+        if (slide.uncoverAt == UNSET) slide.uncoverAt = now
+        return 1f - ((now - slide.uncoverAt).toFloat() / UNCOVER_MILLIS).coerceIn(0f, 1f)
     }
 
     private fun imageFade(slide: Slide, now: Long) =
@@ -258,15 +300,22 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
     }
 
     private fun render(canvas: Canvas, now: Long) {
-        canvas.drawColor(Color.BLACK)
         val slide = current
+        if (overlay) {
+            canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            coverPaint.alpha = ((if (slide == null) 1f else cover(slide, now)) * 255).toInt().coerceIn(0, 255)
+            canvas.drawRect(0f, 0f, bufferWidth.toFloat(), bufferHeight.toFloat(), coverPaint)
+        } else {
+            canvas.drawColor(Color.BLACK)
+        }
         if (slide == null) {
             message?.let { drawStatus(canvas, it, 1f) }
             return
         }
         val fade = imageFade(slide, now)
+        val cover = cover(slide, now)
         previous?.takeIf { fade < 1f }?.let { drawSlide(canvas, it, 1f - fade, it.captionAlphaWhenReplaced * (1f - fade)) }
-        drawSlide(canvas, slide, fade, captionAlpha(slide, now))
+        drawSlide(canvas, slide, fade * cover, captionAlpha(slide, now))
         message?.let { if (fade < 1f) drawStatus(canvas, it, 1f - fade) else message = null }
     }
 
@@ -304,6 +353,8 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
     companion object {
         private const val TAG = "CosmosSlideshowView"
         const val FADE_MILLIS = 1_500L
+        /** Fading the upscaled copy away once the native-resolution picture is underneath. */
+        const val UNCOVER_MILLIS = 600L
         const val SUBTLE_HOLD_MILLIS = 15_000L
         const val CAPTION_FADE_MILLIS = 2_000L
         private const val STATUS_ALPHA = 170

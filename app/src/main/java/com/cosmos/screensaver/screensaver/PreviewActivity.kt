@@ -8,13 +8,21 @@ import android.view.WindowManager
 /** Runs the same slideshow as the screensaver, so it can be checked without waiting for idle. */
 class PreviewActivity : Activity() {
     private var controller: SlideshowController? = null
+    private var stage: SlideshowStage? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val view = SlideshowView(this)
-        setContentView(view)
-        controller = SlideshowController(this, view)
+        val created = SlideshowStage.create(this)
+        stage = created
+        setContentView(created.root)
+        controller = created.controller(this)
+    }
+
+    override fun onDestroy() {
+        stage?.release()
+        stage = null
+        super.onDestroy()
     }
 
     override fun onStart() {
