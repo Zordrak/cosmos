@@ -62,6 +62,7 @@ internal object CacheTrimmer {
         userState: UserStateStore,
         selection: ImageSelection,
         providers: Set<AssetProvider>,
+        clock: () -> Long = System::currentTimeMillis,
         fits: (savedBytes: Long) -> Boolean
     ): Result {
         var removed = 0
@@ -83,7 +84,7 @@ internal object CacheTrimmer {
                 ?: return Result(
                     removed, removedBytes, protectedRemain = protectedBytes(entries, state) > 0L, failures = failures
                 )
-            when (LibraryMaintenance.evict(store, userState, next.identity)) {
+            when (LibraryMaintenance.evict(store, userState, next.identity, clock())) {
                 0 -> {
                     failures++
                     skipped += next.identity

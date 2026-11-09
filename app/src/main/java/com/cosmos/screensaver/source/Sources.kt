@@ -41,11 +41,40 @@ internal class Lead(val id: String, val resolve: () -> CandidateResult)
 
 internal data class Discovery(val leads: List<Lead>, val errors: List<String>, val reached: Boolean)
 
+/** How the library already regards a picture a listing names. */
+internal enum class LeadStatus {
+    /** Never seen, or a past decision that has expired: worth resolving. */
+    FRESH,
+
+    /** Was saved and then removed to make room: wanted back only if there is spare room. */
+    RETIRED,
+
+    /** Saved, rejected, blocked or held aside: nothing to do. */
+    DONE
+}
+
+/** Lets an adapter skip what the library has dealt with, so a crawl can reach pictures it has not. */
+internal interface LeadFilter {
+    fun status(id: String): LeadStatus
+
+    /** False when a picture of this declared size can never qualify under the current settings. */
+    fun fits(width: Int, height: Int): Boolean = true
+
+    companion object {
+        val EVERYTHING_FRESH = object : LeadFilter {
+            override fun status(id: String) = LeadStatus.FRESH
+        }
+    }
+}
+
 internal interface SourceAdapter {
     val provider: AssetProvider
     val label: String
 
     fun discover(fetcher: Fetcher, random: Random): Discovery
+
+    /** As [discover], but may go deeper into the source's archive than what [filter] already accounts for. */
+    fun discover(fetcher: Fetcher, random: Random, filter: LeadFilter): Discovery = discover(fetcher, random)
 
     /**
      * Re-reads one already saved picture's description and returns a rejection reason if it should

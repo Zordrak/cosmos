@@ -56,6 +56,30 @@ internal object DjangoplicityParser {
     fun discoveredIds(document: String, site: DjangoplicitySite): List<String> =
         (feedIds(document, site) + listingIds(document, site)).distinct()
 
+    private val LISTING_OBJECT = Regex(
+        """\bid:\s*'([A-Za-z0-9_-]+)'[^}]{0,1500}?\bwidth:\s*(\d+)\s*,\s*height:\s*(\d+)"""
+    )
+
+    /** The pictures on one category listing page, with the size each is declared to have. */
+    fun listingItems(html: String): List<ListingItem> =
+        LISTING_OBJECT.findAll(html)
+            .mapNotNull { match ->
+                val id = match.groupValues[1]
+                val width = match.groupValues[2].toIntOrNull()
+                val height = match.groupValues[3].toIntOrNull()
+                if (isAssetId(id) && width != null && height != null) ListingItem(id, width, height) else null
+            }
+            .distinctBy { it.id }
+            .toList()
+
+    /** The highest page number a category listing advertises, or 1 when it shows no pagination. */
+    fun listingLastPage(html: String): Int =
+        Regex("""/archive/category/[a-z0-9_-]+/(?:page|list)/(\d+)/""")
+            .findAll(html)
+            .mapNotNull { it.groupValues[1].toIntOrNull() }
+            .maxOrNull()
+            ?.coerceIn(1, ListingCache.MAX_PAGES) ?: 1
+
     fun isAssetId(id: String) = ID_PATTERN.matches(id) && id.lowercase(Locale.ROOT) !in NON_ASSET_PATHS
 
     fun policyIsCurrent(html: String, site: DjangoplicitySite): Boolean {

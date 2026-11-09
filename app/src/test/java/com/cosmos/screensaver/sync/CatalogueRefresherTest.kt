@@ -662,6 +662,78 @@ class CatalogueRefresherTest {
 
     private val mib = 1024L * 1024
 
+    private fun savedKeys() = store.load().entries.map { it.providerId }.toSet()
+
+    private fun evictByKey(providerId: String) {
+        val entry = store.load().entries.single { it.providerId == providerId }
+        assertTrue(LibraryMaintenance.evict(store, userState, entry.sha256, now) > 0)
+    }
+
+    @Test
+    fun anEvictedPictureIsRememberedAndReturnsWhenThereIsSpareRoom() {
+        publish(hubble, "heic9901a")
+        publish(hubble, "heic9902a")
+        refresher(selection = personal).refresh()
+        assertEquals(setOf("heic9901a", "heic9902a"), savedKeys())
+
+        evictByKey("heic9901a")
+        assertEquals(LibraryMaintenance.EVICTED, store.load().rejections.getValue("ESA_HUBBLE:heic9901a").reason)
+        assertEquals(setOf("heic9902a"), savedKeys())
+
+        now += 1000
+        val result = refresher(selection = personal).refresh()
+
+        assertEquals(1, result.admitted)
+        assertEquals(setOf("heic9901a", "heic9902a"), savedKeys())
+        assertTrue(store.load().rejections.isEmpty())
+    }
+
+    @Test
+    fun retiredPicturesReturnBeforeNewOnesWhenThereIsRoomForOnlyOne() {
+        listOf("heic9901a", "heic9902a").forEach { publish(hubble, it); sizeOf(hubble, it, 40 * mib) }
+        refresher(selection = personal, budgetFor = { 100 * mib }).refresh()
+        evictByKey("heic9901a")
+        publish(hubble, "heic9903a")
+        sizeOf(hubble, "heic9903a", 40 * mib)
+        now += 1000
+        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
+
+        refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+
+        assertEquals(setOf("heic9901a", "heic9902a"), savedKeys())
+    }
+
+    @Test
+    fun aFullLibraryPrefersNewPicturesToRetiredOnes() {
+        listOf("heic9901a", "heic9902a", "heic9903a").forEach { publish(hubble, it); sizeOf(hubble, it, 40 * mib) }
+        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
+        repeat(3) {
+            now += 1000
+            refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
+        }
+        assertEquals(2, store.load().entries.size)
+        val retiredId = (setOf("heic9901a", "heic9902a", "heic9903a") - savedKeys()).single()
+        publish(hubble, "heic9904a")
+        sizeOf(hubble, "heic9904a", 40 * mib)
+        now += 1000
+
+        refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
+
+        assertTrue("heic9904a" in savedKeys())
+        assertFalse(retiredId in savedKeys())
+    }
+
+    @Test
+    fun noPictureIsEvictedAndReturnedWithinOnePass() {
+        (1..6).forEach { publish(hubble, "heic990${it}a"); sizeOf(hubble, "heic990${it}a", 40 * mib) }
+        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 20, maxLeadsPerSource = 20)
+
+        refresher(selection = personal, limits = limits, budgetFor = { 90 * mib }).refresh()
+
+        // Six pictures, two fit: each was admitted once at most, never re-fetched after eviction.
+        assertEquals(6, fetcher.requests.count { it.contains("publicationjpg") })
+    }
+
     private fun sizeOf(site: DjangoplicitySite, id: String, bytes: Long) {
         fetcher.sizes[site.renditionUrl(Rendition.PUBLICATION, id)] = bytes
     }

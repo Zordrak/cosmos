@@ -16,6 +16,7 @@ import com.cosmos.screensaver.settings.DownloadMode
 import com.cosmos.screensaver.settings.ImageSelection
 import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.source.HttpsFetcher
+import com.cosmos.screensaver.source.ListingCache
 import com.cosmos.screensaver.source.Sources
 import java.io.File
 import java.util.Locale
@@ -204,7 +205,10 @@ internal object RefreshCoordinator {
             userState = userState,
             inspector = ::inspectImage,
             territory = deviceTerritory(),
-            adapters = Sources.adapters(settings.enabledProviders),
+            adapters = Sources.adapters(
+                settings.enabledProviders,
+                listings = ListingCache(java.io.File(context.cacheDir, "listings.json"))
+            ),
             selection = settings.selection,
             budgetFor = budgetFor,
             startIndex = startIndex,

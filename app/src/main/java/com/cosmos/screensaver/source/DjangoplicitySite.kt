@@ -30,39 +30,54 @@ internal enum class DjangoplicitySite(
     val policyPath: String,
     /** Exact sentence the usage policy must still contain when licence checking is enabled. */
     val policyStatement: String,
-    private val extraListings: List<String>
+    private val extraListings: List<String>,
+    /** Archive categories of observations, crawled page by page beyond the headline listings. */
+    val categories: List<String>,
+    private val pageSegment: String
 ) {
     HUBBLE(
         AssetProvider.ESA_HUBBLE, "ESA/Hubble", "esahubble.org", "esahubble.org", "/images/",
         "cdn.esahubble.org", "/archives/images/", "/copyright/",
         esaStatement("ESA/Hubble"),
-        listOf("archive/top100/page/2/", "potw/")
+        listOf("archive/top100/page/2/", "potw/"),
+        listOf("galaxies", "nebulae", "starclusters", "stars", "cosmology", "blackholes", "solarsystem"),
+        "page"
     ),
     WEBB(
         AssetProvider.ESA_WEBB, "ESA/Webb", "esawebb.org", "esawebb.org", "/images/",
         "cdn.esawebb.org", "/archives/images/", "/copyright/",
         esaStatement("ESA/Webb"),
-        listOf("archive/top100/page/2/", "archive/category/nebulae/", "archive/category/galaxies/")
+        listOf("archive/top100/page/2/", "archive/category/nebulae/", "archive/category/galaxies/"),
+        listOf("galaxies", "nebulae", "nircam", "miri", "stars", "pictureofthemonth", "firstimages", "solarsystem"),
+        "page"
     ),
     ESO(
         AssetProvider.ESO, "ESO", "eso.org", "www.eso.org", "/public/images/",
         "cdn.eso.org", "/images/", "/public/outreach/copyright/",
         "are licensed under a Creative Commons Attribution 4.0 International License, and may on a " +
             "non-exclusive basis be reproduced without fee provided the credit is clear and visible.",
-        listOf("potw/")
+        listOf("potw/"),
+        listOf("galaxies", "nebulae", "starclusters", "stars", "galaxyclusters", "cosmology", "blackholes", "solarsystem"),
+        "list"
     ),
     NOIRLAB(
         AssetProvider.NOIRLAB, "NOIRLab", "noirlab.edu", "noirlab.edu", "/public/images/",
         "storage.noirlab.edu", "/media/archives/images/", "/public/copyright/",
         "are licensed under a Creative Commons Attribution 4.0 International License, and hence may on a " +
             "non-exclusive basis be reproduced without fee provided the credit is clear and visible.",
-        listOf("archive/top100/page/2/", "iotw/")
+        listOf("archive/top100/page/2/", "iotw/"),
+        listOf("galaxies", "nebulae", "starclusters", "stars", "galaxyclusters", "cosmology", "blackholes", "solarsystem", "multiwavelength"),
+        "page"
     );
 
     val hosts: Set<String> get() = setOf(domain, "www.$domain", webHost, cdnHost)
     val policyUrl: String get() = "https://$webHost$policyPath"
     val discoveryUrls: List<String>
         get() = (listOf("feed/", "archive/top100/") + extraListings).map { "https://$webHost$pagePath$it" }
+
+    /** One page of a category listing; the first page is the category's own address. */
+    fun categoryUrl(category: String, page: Int): String =
+        "https://$webHost${pagePath}archive/category/$category/" + if (page <= 1) "" else "$pageSegment/$page/"
 
     fun pageUrl(id: String) = "https://$webHost$pagePath$id/"
 

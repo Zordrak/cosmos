@@ -17,6 +17,8 @@ internal object LibraryMaintenance {
     /** Rejection reason recorded when a download turned out to be a blocked picture. */
     const val BLOCKED = "BLOCKED"
 
+    /** Rejection reason recorded when a picture was removed to make room; see [evict]. */
+    const val EVICTED = "EVICTED"
     data class Report(val removed: Int = 0, val hidden: Int = 0)
 
     /** Files being written or about to be committed by an in-flight admission; cleanup leaves them alone. */
@@ -131,7 +133,12 @@ internal object LibraryMaintenance {
      * so a stale candidate list can never delete a picture favourited meanwhile. Returns the
      * number of aliases removed, [PROTECTED], or 0 if nothing could be removed.
      */
-    fun evict(store: CatalogueStore, userState: UserStateStore, identity: String): Int = CatalogueStore.locked {
+    fun evict(
+        store: CatalogueStore,
+        userState: UserStateStore,
+        identity: String,
+        atMillis: Long = System.currentTimeMillis()
+    ): Int = CatalogueStore.locked {
         val state = (userState.read() as? UserStateRead.Ok)?.state ?: return@locked 0
         val catalogue = (store.read() as? StoreRead.Ok)?.catalogue ?: return@locked 0
         val targets = catalogue.entries.filter { (it.sha256.ifBlank { it.key }) == identity }
@@ -139,7 +146,14 @@ internal object LibraryMaintenance {
         if (targets.any { state.isFavourite(it.sha256) }) return@locked PROTECTED
         val remaining = catalogue.entries - targets.toSet()
         try {
-            store.update { it.copy(entries = remaining) }
+            // Remembering the eviction lets a later refresh bring the picture back into spare room
+            // without ever swapping it straight back in for another.
+            store.update { current ->
+                current.copy(
+                    entries = remaining,
+                    rejections = current.rejections + targets.associate { it.key to RejectionRecord(EVICTED, atMillis) }
+                )
+            }
         } catch (error: IOException) {
             return@locked 0
         }

@@ -315,12 +315,16 @@ internal class NasaLibraryAdapter(private val queriesPerRefresh: Int = 3) : Sour
 }
 
 internal object Sources {
-    fun adapters(providers: Set<AssetProvider>, clock: () -> Long = System::currentTimeMillis): List<SourceAdapter> =
+    fun adapters(
+        providers: Set<AssetProvider>,
+        clock: () -> Long = System::currentTimeMillis,
+        listings: ListingCache = ListingCache(null)
+    ): List<SourceAdapter> =
         providers.sortedBy { it.ordinal }.mapNotNull { provider ->
             when (provider) {
                 AssetProvider.NASA -> NasaLibraryAdapter()
                 AssetProvider.APOD -> ApodAdapter()
-                else -> DjangoplicitySite.forProvider(provider)?.let { DjangoplicityAdapter(it, clock) }
+                else -> DjangoplicitySite.forProvider(provider)?.let { DjangoplicityAdapter(it, listings, clock) }
             }
         }
 

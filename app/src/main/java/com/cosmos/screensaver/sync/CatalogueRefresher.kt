@@ -28,6 +28,8 @@ import com.cosmos.screensaver.source.DjangoplicityParser
 import com.cosmos.screensaver.source.DjangoplicitySite
 import com.cosmos.screensaver.source.Fetcher
 import com.cosmos.screensaver.source.ImageHeader
+import com.cosmos.screensaver.source.LeadFilter
+import com.cosmos.screensaver.source.LeadStatus
 import com.cosmos.screensaver.source.RenditionOption
 import com.cosmos.screensaver.source.ResourceTooLargeException
 import com.cosmos.screensaver.source.SourceAdapter
@@ -251,23 +253,41 @@ internal class CatalogueRefresher(
                     }
                 }
                 run?.discovering(adapter.label)
-                val discovery = adapter.discover(fetcher, random)
+                // Pictures evicted earlier in this very pass must not look new to the sources still to come.
+                store.load().rejections.forEach { (key, record) ->
+                    if (record.reason == LibraryMaintenance.EVICTED && key !in rejections) rejections[key] = record
+                }
+                val satisfied = snapshot().eligibleKeys
+                val state = userState.load()
+                val keyPrefix = "${adapter.provider.name}:"
+                val leadFilter = object : LeadFilter {
+                    override fun status(id: String): LeadStatus {
+                        val key = "$keyPrefix$id"
+                        if (key in satisfied || state.isBlocked(key, null) || isStashed(key, "")) return LeadStatus.DONE
+                        return when (rejections[key]?.reason) {
+                            null -> LeadStatus.FRESH
+                            LibraryMaintenance.EVICTED -> LeadStatus.RETIRED
+                            else -> LeadStatus.DONE
+                        }
+                    }
+
+                    override fun fits(width: Int, height: Int) = requiredResolution()?.accepts(width, height) ?: true
+                }
+                val discovery = adapter.discover(fetcher, random, leadFilter)
                 errors += discovery.errors
                 discovery.errors.lastOrNull()?.let { run?.error(ProgressErrorKind.DISCOVERY, it, adapter.label) }
                 if (discovery.reached) anySourceReached = true
 
-                val satisfied = snapshot().eligibleKeys
-                val state = userState.load()
-                val keyPrefix = "${adapter.provider.name}:"
-                val leads = discovery.leads
-                    .filter { lead ->
-                        val key = "$keyPrefix${lead.id}"
-                        key !in satisfied && key !in rejections && !state.isBlocked(key, null) && !isStashed(key, "")
-                    }
-                    .shuffled(random)
+                // Pictures removed earlier to make room come back first, but only into spare room.
+                val (retiredLeads, freshLeads) = discovery.leads
+                    .filter { lead -> leadFilter.status(lead.id) != LeadStatus.DONE }
+                    .partition { rejections["$keyPrefix${it.id}"]?.reason == LibraryMaintenance.EVICTED }
+                val leads = retiredLeads.sortedBy { rejections.getValue("$keyPrefix${it.id}").atEpochMillis } +
+                    freshLeads.shuffled(random)
 
                 var resolved = 0
                 var sourceAdmissions = 0
+                var spareRoom: Boolean? = null
                 for (lead in leads) {
                     if (resolved >= limits.maxLeadsPerSource || sourceAdmissions >= limits.maxAdmissionsPerSource) break
                     if (full && runAdmissions >= limits.maxAdmissionsWhenFull) break@sources
@@ -276,8 +296,16 @@ internal class CatalogueRefresher(
                         stoppedByPolicy = true
                         break@sources
                     }
-                    resolved++
                     val key = "$keyPrefix${lead.id}"
+                    if (rejections[key]?.reason == LibraryMaintenance.EVICTED) {
+                        // Never bring back what this same pass removed; otherwise only into spare room,
+                        // or by rotation once there is nothing new left to try.
+                        if (rejections.getValue(key).atEpochMillis >= startedAt) continue
+                        if (spareRoom == null) spareRoom = hasSpareRoom()
+                        if (spareRoom != true && freshLeads.isNotEmpty()) continue
+                    }
+                    resolved++
+                    spareRoom = null
                     run?.discovering(adapter.label)
                     val outcome = try {
                         when (val result = lead.resolve()) {
@@ -618,7 +646,14 @@ internal class CatalogueRefresher(
                 return@locked Outcome.Rejected(FAVOURITE_KEPT)
             }
             store.update { current ->
-                current.copy(entries = current.entries.filterNot { it.key == entry.key } + entry)
+                current.copy(
+                    entries = current.entries.filterNot { it.key == entry.key } + entry,
+                    rejections = if (current.rejections[entry.key]?.reason == LibraryMaintenance.EVICTED) {
+                        current.rejections - entry.key
+                    } else {
+                        current.rejections
+                    }
+                )
             }
             if (previous != null && previous.fileName != entry.fileName) {
                 LibraryMaintenance.discardIfUnreferenced(store, previous.fileName)
@@ -824,6 +859,13 @@ internal class CatalogueRefresher(
         }
     }
 
+    /** True when another picture fits without removing any: the only time a retired picture may return. */
+    private fun hasSpareRoom(): Boolean {
+        val used = SelectionSnapshot.physicalBytes(store.load().entries)
+        val budget = budgetFor(used)
+        return budget.known && used + limits.downloadReserveBytes <= budget.budgetBytes
+    }
+
     private sealed interface Room {
         data class Ok(val freeBytes: Long) : Room
         data class Full(val reason: NoRoomReason) : Room
@@ -837,7 +879,7 @@ internal class CatalogueRefresher(
      */
     private fun makeRoom(needBytes: Long, onDiskBytes: Long = 0L): Room {
         var latest = CacheBudget.UNKNOWN
-        val result = CacheTrimmer.evictUntil(store, userState, selection, providers) { saved ->
+        val result = CacheTrimmer.evictUntil(store, userState, selection, providers, clock) { saved ->
             val used = saved + onDiskBytes
             latest = budgetFor(used)
             // An unknown measurement stops eviction: never delete on a guess.
