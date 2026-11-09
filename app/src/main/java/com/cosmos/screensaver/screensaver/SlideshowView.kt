@@ -35,8 +35,19 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         /** Runs once, after a frame in which this slide is visibly (nonzero alpha) posted to the screen. */
         var onPosted: (() -> Unit)? = null
     ) {
-        val shownAt = SystemClock.uptimeMillis()
+        /** Uptime when the picture first became drawable; unset until a surface can actually show it. */
+        var shownAt = UNSET
         var captionAlphaWhenReplaced = 0f
+    }
+
+    private fun elapsed(slide: Slide, now: Long): Long = if (slide.shownAt == UNSET) 0L else now - slide.shownAt
+
+    /** Starts a slide's fade and caption clocks, once, at the moment a surface can really show it. */
+    private fun startClock(slide: Slide, now: Long) {
+        if (slide.shownAt != UNSET) return
+        slide.shownAt = now
+        mainHandler.removeCallbacks(captionFadeStarter)
+        if (captionMode == CaptionMode.SUBTLE) mainHandler.postDelayed(captionFadeStarter, SUBTLE_HOLD_MILLIS)
     }
 
     var captionMode: CaptionMode = CaptionMode.SUBTLE
@@ -52,7 +63,10 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
     var bufferHeight = 0
         private set
 
-    private val synthetic = SyntheticArtworkRenderer()
+    private val statusPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+    }
     private val imagePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val scrimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
     private val destination = Rect()
@@ -127,9 +141,11 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         surfaceReady = false
     }
 
-    fun showMessage(text: String) {
+    /** Shows (or, with null, clears) a dim status line while there is no picture; it fades out into the first picture. */
+    fun showMessage(text: String?) {
+        if (current != null) return
         message = text
-        if (current == null) requestDraw()
+        requestDraw()
     }
 
     /**
@@ -142,9 +158,10 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         current?.let { it.captionAlphaWhenReplaced = captionAlpha(it, now) }
         previous = current
         captionOnLeft = !captionOnLeft
-        current = Slide(frame, attribution, captionOnLeft, onPosted)
+        val slide = Slide(frame, attribution, captionOnLeft, onPosted)
+        current = slide
         mainHandler.removeCallbacks(captionFadeStarter)
-        if (captionMode == CaptionMode.SUBTLE) mainHandler.postDelayed(captionFadeStarter, SUBTLE_HOLD_MILLIS)
+        if (surfaceReady) startClock(slide, now)
         requestDraw()
     }
 
@@ -168,17 +185,18 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
 
     private fun isAnimating(now: Long): Boolean {
         val slide = current ?: return false
-        val elapsed = now - slide.shownAt
+        if (slide.shownAt == UNSET) return false
+        val elapsed = elapsed(slide, now)
         if (elapsed < FADE_MILLIS) return true
         return captionMode == CaptionMode.SUBTLE && elapsed in SUBTLE_HOLD_MILLIS until SUBTLE_HOLD_MILLIS + CAPTION_FADE_MILLIS
     }
 
     private fun imageFade(slide: Slide, now: Long) =
-        ((now - slide.shownAt).toFloat() / FADE_MILLIS).coerceIn(0f, 1f)
+        (elapsed(slide, now).toFloat() / FADE_MILLIS).coerceIn(0f, 1f)
 
     private fun captionAlpha(slide: Slide, now: Long): Float {
         if (captionMode == CaptionMode.OFF) return 0f
-        val elapsed = (now - slide.shownAt).toFloat()
+        val elapsed = elapsed(slide, now).toFloat()
         val fadeIn = (elapsed / FADE_MILLIS).coerceIn(0f, 1f)
         if (captionMode == CaptionMode.DETAILED) return fadeIn
         val fadeOut = 1f - ((elapsed - SUBTLE_HOLD_MILLIS) / CAPTION_FADE_MILLIS).coerceIn(0f, 1f)
@@ -190,6 +208,7 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         val surfaceHolder = holder
         val canvas = lock(surfaceHolder) ?: return
         val now = SystemClock.uptimeMillis()
+        current?.let { startClock(it, now) }
         var posted = false
         try {
             render(canvas, now)
@@ -233,15 +252,30 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
     }
 
     private fun render(canvas: Canvas, now: Long) {
+        canvas.drawColor(Color.BLACK)
         val slide = current
         if (slide == null) {
-            synthetic.draw(canvas, bufferWidth, bufferHeight, message, showTestMarkers = false)
+            message?.let { drawStatus(canvas, it, 1f) }
             return
         }
-        canvas.drawColor(Color.BLACK)
         val fade = imageFade(slide, now)
         previous?.takeIf { fade < 1f }?.let { drawSlide(canvas, it, 1f - fade, it.captionAlphaWhenReplaced * (1f - fade)) }
         drawSlide(canvas, slide, fade, captionAlpha(slide, now))
+        message?.let { if (fade < 1f) drawStatus(canvas, it, 1f - fade) else message = null }
+    }
+
+    /** A quiet, left-aligned line inside the TV's safe area, never larger than the credits. */
+    private fun drawStatus(canvas: Canvas, text: String, alpha: Float) {
+        val unit = bufferHeight / 1080f
+        val margin = 64f * unit
+        statusPaint.textSize = 24f * unit
+        statusPaint.alpha = (alpha * STATUS_ALPHA).toInt().coerceIn(0, 255)
+        val width = (bufferWidth * 0.6f).toInt().coerceAtLeast(1)
+        val layout = layout(text, statusPaint, width)
+        canvas.save()
+        canvas.translate(margin, bufferHeight - margin - layout.height)
+        layout.draw(canvas)
+        canvas.restore()
     }
 
     private fun drawSlide(canvas: Canvas, slide: Slide, imageAlpha: Float, captionAlpha: Float) {
@@ -367,6 +401,8 @@ internal class SlideshowView(context: Context) : SurfaceView(context), SurfaceHo
         const val SUBTLE_HOLD_MILLIS = 15_000L
         const val CAPTION_FADE_MILLIS = 2_000L
         private const val SUBTLE_ALPHA = 170
+        private const val STATUS_ALPHA = 170
+        private const val UNSET = -1L
         private const val DETAILED_ALPHA = 225
         private const val DETAILED_SCRIM_ALPHA = 90
         private const val MIN_EDGE = 480

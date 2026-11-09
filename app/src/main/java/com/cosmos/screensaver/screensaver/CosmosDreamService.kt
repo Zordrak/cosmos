@@ -1,5 +1,7 @@
 package com.cosmos.screensaver.screensaver
 
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.service.dreams.DreamService
 import android.util.Log
 
@@ -12,6 +14,8 @@ class CosmosDreamService : DreamService() {
         // A non-interactive dream is dismissed by the platform on first user input.
         isInteractive = false
         isFullscreen = true
+        // Whatever is behind the picture while it loads must be plain black, never a themed colour.
+        window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
         val view = SlideshowView(this)
         setContentView(view)
         controller = SlideshowController(this, view)

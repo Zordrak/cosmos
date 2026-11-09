@@ -8,6 +8,10 @@
         <item name="android:windowBackground">#050914</item>
     </style>
 
+    <style name="CosmosBlack" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+
     <style name="CosmosDialog" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowIsFloating">false</item>
         <item name="android:windowBackground">@android:color/transparent</item>

@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.catalogue.CatalogueEntry
@@ -47,24 +48,44 @@ internal class SlideshowController(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var worker: HandlerThread? = null
     private var workerHandler: Handler? = null
-    private var shownAny = false
+    @Volatile private var shownAny = false
+    private var pictureOnScreen = false
     private var streamer: ImageStreamer? = null
     private var streamTurn = false
     private var streamedLast = false
 
+    private val startup = StartupStatus()
+    private var startedAtMillis = 0L
+    private val advanceTask = Runnable { advance() }
+
     fun start() {
         if (worker != null) return
         generation++
+        val gen = generation
+        shownAny = false
+        pictureOnScreen = false
         view.captionMode = settings.captionMode
+        view.showMessage(null)
+        // Armed before any decoding or network work so a slow start is never silent for long.
+        startedAtMillis = SystemClock.uptimeMillis()
+        startup.start(startedAtMillis, context.getString(R.string.slideshow_preparing))
+        mainHandler.postDelayed({ if (gen == generation) refreshStatus() }, StartupStatus.DEFAULT_DELAY_MILLIS)
         RefreshJobService.ensureScheduled(context)
         val thread = HandlerThread("cosmos-slideshow").also { it.start() }
         worker = thread
-        workerHandler = Handler(thread.looper).also { it.post(::advance) }
-        RefreshCoordinator.requestRefresh(context)
+        workerHandler = Handler(thread.looper).also { it.post(advanceTask) }
+        RefreshCoordinator.requestRefresh(context) {
+            // A finished refresh may have filled the library: look again now rather than at the next retry.
+            if (gen == generation && !shownAny) workerHandler?.let { handler ->
+                handler.removeCallbacks(advanceTask)
+                handler.post(advanceTask)
+            }
+        }
     }
 
     fun stop() {
         generation++
+        startup.stop()
         workerHandler?.removeCallbacksAndMessages(null)
         mainHandler.removeCallbacksAndMessages(null)
         worker?.quitSafely()
@@ -74,15 +95,50 @@ internal class SlideshowController(
         streamer = null
     }
 
+    private fun refreshStatus() {
+        view.showMessage(startup.visibleText(SystemClock.uptimeMillis()))
+    }
+
+    /** Runs on the main thread when the first picture of this session has reached the screen. */
+    private fun firstPictureShown() {
+        if (pictureOnScreen) return
+        pictureOnScreen = true
+        startup.pictureShown()
+        Log.i(TAG, "First picture shown after ${SystemClock.uptimeMillis() - startedAtMillis} ms")
+    }
+
+    private fun showStatus(gen: Int, message: String) {
+        mainHandler.post {
+            if (gen != generation) return@post
+            startup.update(message)
+            refreshStatus()
+        }
+    }
+
+    /** Shows [frame] on the main thread unless this session has ended meanwhile. */
+    private fun postFrame(gen: Int, frame: Frame, attribution: Attribution, onShown: () -> Unit) {
+        mainHandler.post {
+            if (gen != generation) {
+                frame.bitmap.recycle()
+                return@post
+            }
+            view.show(frame, attribution) {
+                firstPictureShown()
+                onShown()
+            }
+        }
+    }
+
     private fun advance() {
         val handler = workerHandler ?: return
+        val gen = generation
         val shown = showNextImage()
         if (shown) {
             shownAny = true
             val seconds = if (streamedLast && !settings.streamOnly) {
                 maxOf(settings.intervalSeconds, ImageStreamer.MIN_INTERVAL_SECONDS)
             } else settings.intervalSeconds
-            handler.postDelayed(::advance, seconds * 1000L)
+            handler.postDelayed(advanceTask, seconds * 1000L)
         } else {
             if (!shownAny) {
                 val message = when {
@@ -95,9 +151,9 @@ internal class SlideshowController(
                     RefreshCoordinator.isRunning -> context.getString(R.string.slideshow_fetching)
                     else -> context.getString(R.string.slideshow_empty)
                 }
-                mainHandler.post { view.showMessage(message) }
+                showStatus(gen, message)
             }
-            handler.postDelayed(::advance, EMPTY_RETRY_MILLIS)
+            handler.postDelayed(advanceTask, if (shownAny) EMPTY_RETRY_MILLIS else FIRST_PICTURE_RETRY_MILLIS)
         }
     }
 
@@ -122,15 +178,13 @@ internal class SlideshowController(
             val frame = frameFor(streamer.file(entry), entry) ?: return false
             val attribution = Attribution.of(entry)
             val library = store.load().entries.map(SelectionSnapshot::identity).toSet()
-            mainHandler.post {
-                view.show(frame, attribution) {
-                    commitDisplay(gen, entry.sha256, library) { state ->
-                        state.copy(
-                            streamOrder = StreamQueue.withAccepted(
-                                state.streamOrder, streamed.next, streamed.leadKey, entry.sha256
-                            )
+            postFrame(gen, frame, attribution) {
+                commitDisplay(gen, entry.sha256, library) { state ->
+                    state.copy(
+                        streamOrder = StreamQueue.withAccepted(
+                            state.streamOrder, streamed.next, streamed.leadKey, entry.sha256
                         )
-                    }
+                    )
                 }
             }
             return true
@@ -176,10 +230,8 @@ internal class SlideshowController(
                 return@repeat
             }
             val attribution = Attribution.of(entry)
-            mainHandler.post {
-                view.show(frame, attribution) {
-                    commitDisplay(gen, pick.hash, library) { state -> state.copy(cachedOrder = pick.next) }
-                }
+            postFrame(gen, frame, attribution) {
+                commitDisplay(gen, pick.hash, library) { state -> state.copy(cachedOrder = pick.next) }
             }
             return true
         }
@@ -302,6 +354,7 @@ internal class SlideshowController(
         private const val TAG = "CosmosSlideshow"
         private const val MAX_ATTEMPTS = 3
         private const val EMPTY_RETRY_MILLIS = 20_000L
+        private const val FIRST_PICTURE_RETRY_MILLIS = 2_000L
 
         // Two frames are held during a cross-fade; keep each within GPU texture limits.
         private const val MAX_FRAME_EDGE = 4096

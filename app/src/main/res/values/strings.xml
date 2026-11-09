@@ -177,6 +177,7 @@
 
     <!-- Slideshow messages -->
     <string name="slideshow_fetching">Fetching space imagery…</string>
+    <string name="slideshow_preparing">Preparing pictures…</string>
     <string name="slideshow_streaming">Not enough free space to keep images. Streaming them instead…</string>
     <string name="slideshow_streaming_only">Streaming images…</string>
     <string name="slideshow_no_space">Not enough free space to cache or stream images. Free up some space on the TV.</string>
