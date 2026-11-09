@@ -51,14 +51,22 @@ internal object LibraryStorage {
         synchronized(lock) {
             ready?.let { return it }
             val appContext = context.applicationContext
-            val result = initializeOnStorageThread(appContext.filesDir, appContext.cacheDir)
+            val result = initializeOnStorageThread(appContext.filesDir, appContext.cacheDir) { store, userState ->
+                TrashBin.create(appContext, store, userState).recoverAndExpire().let {
+                    if (it.rolledBack + it.finalized + it.resumed > 0 || it.problems.isNotEmpty()) Log.i(TAG, "Undo recovery: $it")
+                }
+            }
             lastResult = result
             if (result !is LibraryMigration.Result.Failed) ready = result
             return result
         }
     }
 
-    internal fun initializeOnStorageThread(filesDir: File, cacheDir: File): LibraryMigration.Result {
+    internal fun initializeOnStorageThread(
+        filesDir: File,
+        cacheDir: File,
+        recoverUndo: (CatalogueStore, UserStateStore) -> Unit = { _, _ -> }
+    ): LibraryMigration.Result {
         val result = LibraryMigration.migrate(oldDirectory = cacheDir, newDirectory = filesDir)
         when (result) {
             is LibraryMigration.Result.Failed -> Log.e(TAG, "Library migration failed: ${result.reason}")
@@ -70,6 +78,8 @@ internal object LibraryStorage {
             if (store.quarantineCorrupt()) Log.w(TAG, "A damaged library index was set aside")
             val userState = UserStateStore(filesDir)
             (store.read() as? StoreRead.Ok)?.let { userState.ensureSeeded(it.catalogue, System.currentTimeMillis()) }
+            // Unfinished or expired removals are settled before anything else looks at the library.
+            recoverUndo(store, userState)
             // Blocks and content rules are enforced from local data alone, even while saving is paused.
             LibraryMaintenance.screenLocal(store, userState).let {
                 if (it.removed > 0 || it.hidden > 0) Log.i(TAG, "Library screening: $it")

@@ -31,6 +31,8 @@ internal object LibraryMaintenance {
         inFlight -= file.absolutePath
     }
 
+    fun isClaimed(file: File): Boolean = file.absolutePath in inFlight
+
     /**
      * Applies explicit blocks and the content rules that need only the saved metadata, and drops
      * entries whose file has vanished. Favourites that fail are kept but hidden with the reason.

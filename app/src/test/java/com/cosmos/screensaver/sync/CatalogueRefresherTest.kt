@@ -770,6 +770,42 @@ class CatalogueRefresherTest {
     }
 
     @Test
+    fun aPictureHeldForUndoIsNeverResolvedAndNothingIsRemembered() {
+        publish(hubble, "heic9901a")
+
+        val result = refresher(isStashed = { key, _ -> key == "ESA_HUBBLE:heic9901a" }).refresh()
+
+        assertEquals(0, result.admitted)
+        assertTrue(fetcher.requests.none { it.contains("heic9901a") })
+        assertTrue(store.load().rejections.isEmpty())
+    }
+
+    @Test
+    fun aPictureWhoseHashIsHeldForUndoIsDiscardedWithoutARememberedRejection() {
+        publish(hubble, "heic9901a")
+        refresher().refresh()
+        val saved = store.load().entries.single()
+        store.remove(saved.key)
+
+        val result = refresher(isStashed = { _, sha -> sha == saved.sha256 }).refresh()
+
+        assertEquals(0, result.admitted)
+        assertTrue(store.load().entries.isEmpty())
+        assertEquals(emptyList<String>(), store.imagesDirectory.list()!!.toList())
+        assertTrue(store.load().rejections.isEmpty())
+    }
+
+    @Test
+    fun savingWaitsWhileARemovalCanStillBeUndone() {
+        publish(hubble, "heic9901a")
+
+        val result = refresher(holdAdmissions = { true }).refresh()
+
+        assertEquals(0, result.admitted)
+        assertTrue(fetcher.requests.none { it.contains("heic9901a") })
+    }
+
+    @Test
     fun aPictureBlockedWhileItDownloadsStaysBlocked() {
         publish(hubble, "heic9902a")
         publish(hubble, "heic9901a")
@@ -1003,7 +1039,9 @@ class CatalogueRefresherTest {
         budgetFor: (Long) -> Long = { Long.MAX_VALUE },
         cacheBudget: ((Long) -> CacheBudget)? = null,
         startIndex: Int = 0,
-        extraAdapters: List<SourceAdapter> = emptyList()
+        extraAdapters: List<SourceAdapter> = emptyList(),
+        isStashed: (String, String) -> Boolean = { _, _ -> false },
+        holdAdmissions: () -> Boolean = { false }
     ) = CatalogueRefresher(
         fetcher = fetcher,
         store = store,
@@ -1016,7 +1054,9 @@ class CatalogueRefresherTest {
         random = Random(7),
         limits = limits,
         budgetFor = cacheBudget ?: { used -> CacheBudget.fixed(budgetFor(used)) },
-        startIndex = startIndex
+        startIndex = startIndex,
+        isStashed = isStashed,
+        holdAdmissions = holdAdmissions
     )
 
     private fun publish(

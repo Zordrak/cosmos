@@ -179,7 +179,7 @@ internal object CatalogueJson {
         )
     }
 
-    private fun encodeEntry(entry: CatalogueEntry) = JSONObject().apply {
+    fun encodeEntry(entry: CatalogueEntry) = JSONObject().apply {
         put("provider", entry.provider.name)
         put("providerId", entry.providerId)
         put("title", entry.title)
@@ -215,7 +215,7 @@ internal object CatalogueJson {
         if (entry.contentPolicy.isNotBlank()) put("contentPolicy", entry.contentPolicy)
     }
 
-    private fun decodeEntry(json: JSONObject): CatalogueEntry {
+    fun decodeEntry(json: JSONObject): CatalogueEntry {
         val evidenceJson = json.getJSONArray("evidence")
         val evidence = (0 until evidenceJson.length()).map { index ->
             val item = evidenceJson.getJSONObject(index)

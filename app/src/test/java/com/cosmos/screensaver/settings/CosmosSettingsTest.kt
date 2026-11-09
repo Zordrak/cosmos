@@ -2,6 +2,8 @@ package com.cosmos.screensaver.settings
 
 import com.cosmos.screensaver.rights.AssetProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CosmosSettingsTest {
@@ -47,6 +49,15 @@ class CosmosSettingsTest {
     @Test(expected = IllegalArgumentException::class)
     fun cacheLimitSetterRejectsValuesThatAreNotChoices() {
         CosmosSettings(FakeSharedPreferences()).cacheLimitBytes = 7L
+    }
+
+    @Test
+    fun theCheckedLimitWriteReportsWhetherItWasSaved() {
+        val settings = CosmosSettings(FakeSharedPreferences())
+        assertTrue(settings.writeCacheLimit(CosmosSettings.CACHE_LIMIT_CHOICES[2]))
+        assertEquals(CosmosSettings.CACHE_LIMIT_CHOICES[2], settings.cacheLimitBytes)
+        assertFalse(settings.writeCacheLimit(7L))
+        assertEquals(CosmosSettings.CACHE_LIMIT_CHOICES[2], settings.cacheLimitBytes)
     }
 
     @Test

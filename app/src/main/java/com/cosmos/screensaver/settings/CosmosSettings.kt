@@ -63,6 +63,10 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
             preferences.edit().putLong(KEY_CACHE_LIMIT, value).apply()
         }
 
+    /** Saves the size and reports whether it reached storage (false for anything that is not an allowed choice). */
+    fun writeCacheLimit(value: Long): Boolean =
+        value in CACHE_LIMIT_CHOICES && preferences.edit().putLong(KEY_CACHE_LIMIT, value).commit()
+
     /** Which source gets first call on the next refresh, so a full library serves every source in turn. */
     var refreshCursor: Int
         get() = preferences.getInt(KEY_REFRESH_CURSOR, 0).coerceAtLeast(0)

@@ -100,7 +100,11 @@ internal class CatalogueRefresher(
     /** The budget for the library, given the bytes it (plus any file being added) occupies now. */
     private val budgetFor: (usedBytes: Long) -> CacheBudget = { CacheBudget.fixed(Long.MAX_VALUE) },
     /** Index into the provider-ordered sources at which this refresh starts, so every source gets a turn. */
-    private val startIndex: Int = 0
+    private val startIndex: Int = 0,
+    /** True for a picture (by source key, and by content hash once known) that an undoable removal holds; it must not be saved again. */
+    private val isStashed: (key: String, sha256: String) -> Boolean = { _, _ -> false },
+    /** True while saving must wait (a removal can still be undone). */
+    private val holdAdmissions: () -> Boolean = { false }
 ) {
     data class Limits(
         val maxLeadsPerSource: Int = 60,
@@ -123,6 +127,9 @@ internal class CatalogueRefresher(
         data class Rejected(val reason: String) : Outcome
         data class Failed(val reason: String) : Outcome
         data class NoSpace(val reason: NoRoomReason) : Outcome
+
+        /** Not saved because an undoable removal holds it; no decision is remembered. */
+        data object Held : Outcome
         data class Stored(
             val fileName: String,
             val sha256: String,
@@ -224,7 +231,7 @@ internal class CatalogueRefresher(
                 val leads = discovery.leads
                     .filter { lead ->
                         val key = "$keyPrefix${lead.id}"
-                        key !in satisfied && key !in rejections && !state.isBlocked(key, null)
+                        key !in satisfied && key !in rejections && !state.isBlocked(key, null) && !isStashed(key, "")
                     }
                     .shuffled(random)
 
@@ -233,6 +240,7 @@ internal class CatalogueRefresher(
                 for (lead in leads) {
                     if (resolved >= limits.maxLeadsPerSource || sourceAdmissions >= limits.maxAdmissionsPerSource) break
                     if (full && runAdmissions >= limits.maxAdmissionsWhenFull) break@sources
+                    if (holdAdmissions()) break@sources
                     resolved++
                     val key = "$keyPrefix${lead.id}"
                     val outcome = try {
@@ -260,6 +268,7 @@ internal class CatalogueRefresher(
                             rejected++
                         }
                         is Outcome.Failed -> errors += "${lead.id}: ${outcome.reason}"
+                        Outcome.Held -> Unit
                         is Outcome.NoSpace -> {
                             space = SpaceStatus.of(outcome.reason)
                             if (outcome.reason == NoRoomReason.UNREADABLE) errors += "saved pictures could not be read"
@@ -535,6 +544,10 @@ internal class CatalogueRefresher(
                 userState.addBlockedAlias(entry.key, entry.sha256)
                 LibraryMaintenance.discardIfUnreferenced(store, entry.fileName)
                 return@locked Outcome.Rejected(LibraryMaintenance.BLOCKED)
+            }
+            if (isStashed(entry.key, entry.sha256)) {
+                LibraryMaintenance.discardIfUnreferenced(store, entry.fileName)
+                return@locked Outcome.Held
             }
             val previous = store.loadStrict().entries.firstOrNull { it.key == entry.key }
             if (previous != null && previous.sha256 != entry.sha256 && state.isFavourite(previous.sha256)) {

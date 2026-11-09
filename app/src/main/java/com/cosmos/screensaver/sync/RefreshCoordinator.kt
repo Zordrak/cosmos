@@ -39,6 +39,8 @@ internal object RefreshCoordinator {
         }
     }
     private val gate = RefreshGate()
+    private val deferredForUndo = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val undoListenerRegistered = java.util.concurrent.atomic.AtomicBoolean(false)
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     val isRunning: Boolean get() = gate.isRunning
@@ -64,7 +66,10 @@ internal object RefreshCoordinator {
      * owner's chosen size (or Automatic), never so much that free space drops below the reserve.
      */
     fun budget(context: Context, ownedBytes: Long): CacheBudget =
-        CacheBudget.compute(measure(context), CosmosSettings(context).cacheLimitBytes, ownedBytes)
+        CacheBudget.compute(
+            measure(context), CosmosSettings(context).cacheLimitBytes,
+            ownedBytes + TrashBin.of(context).bytesOnDisk()
+        )
 
     /** True when there is too little free space to keep a useful library. Unknown is not "low". */
     fun lowOnSpace(context: Context, store: CatalogueStore): Boolean =
@@ -110,6 +115,12 @@ internal object RefreshCoordinator {
     ): Boolean {
         val appContext = context.applicationContext
         val store = store(appContext)
+        val trash = TrashBin.of(appContext)
+        trash.recoverAndExpire()
+        if (trash.pending() != null) {
+            deferForUndo(appContext, trash)
+            return false
+        }
         val settings = CosmosSettings(appContext)
         if (!force && !isStale(
                 store.load(), System.currentTimeMillis(), settings.selection, settings.enabledProviders,
@@ -141,6 +152,18 @@ internal object RefreshCoordinator {
         return true
     }
 
+    /**
+     * Saving waits while a removal can still be undone: the removed files are still on disk and
+     * must not be refilled. One listener resumes normal (policy-respecting) saving once it settles.
+     */
+    private fun deferForUndo(appContext: Context, trash: TrashBin) {
+        deferredForUndo.set(true)
+        if (!undoListenerRegistered.compareAndSet(false, true)) return
+        trash.addSettledListener {
+            if (deferredForUndo.compareAndSet(true, false)) requestRefresh(appContext)
+        }
+    }
+
     internal fun createRefresher(
         context: Context,
         store: CatalogueStore,
@@ -149,6 +172,7 @@ internal object RefreshCoordinator {
         startIndex: Int = 0
     ): CatalogueRefresher {
         val settings = CosmosSettings(context)
+        val trash = TrashBin.of(context)
         return CatalogueRefresher(
             fetcher = HttpsFetcher(userAgent(context)),
             store = store,
@@ -158,7 +182,9 @@ internal object RefreshCoordinator {
             adapters = Sources.adapters(settings.enabledProviders),
             selection = settings.selection,
             budgetFor = budgetFor,
-            startIndex = startIndex
+            startIndex = startIndex,
+            isStashed = trash::isStashed,
+            holdAdmissions = { trash.pending() != null }
         )
     }
 
