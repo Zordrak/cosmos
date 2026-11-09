@@ -18,7 +18,7 @@ internal object LibraryMaintenance {
     data class Report(val removed: Int = 0, val hidden: Int = 0)
 
     /** Files being written or about to be committed by an in-flight admission; cleanup leaves them alone. */
-    private val inFlight: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val inFlight: MutableSet<String> = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
     private val LIBRARY_FILE = Regex("^[0-9a-f]{64}\\.(jpg|png)$")
     private const val STALE_PART_MILLIS = 10L * 60 * 1000

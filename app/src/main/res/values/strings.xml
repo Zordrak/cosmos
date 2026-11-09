@@ -2,38 +2,106 @@
 <resources>
     <string name="app_name">Cosmos</string>
     <string name="dream_name">Cosmos</string>
-    <string name="home_tagline">Space imagery from NASA, ESA, ESO and NOIRLab as your TV screensaver. Images are downloaded straight to this TV and shown from its local cache.</string>
-    <string name="home_storage">%1$s used by downloaded images</string>
-    <string name="home_low_space">Low on free space: images are streamed, not kept (%1$s used)</string>
+
+    <!-- Home -->
+    <string name="home_tagline">Space pictures from NASA, ESA, ESO and NOIRLab as your TV screensaver. They come straight to this TV and are saved here.</string>
+    <string name="home_storage">%1$s of saved pictures</string>
+    <string name="home_low_space">Low on free space: pictures play straight from the internet instead of being saved (%1$s saved)</string>
     <string name="home_settings_unavailable">Unable to open screensaver settings automatically. Open them from your TV\'s system settings and select Cosmos.</string>
-    <string name="home_refreshing">Downloading images…</string>
-    <string name="home_last_refresh">Last refresh %1$s. %2$s</string>
-    <string name="home_no_sources">All image sources are switched off.</string>
+    <string name="home_refreshing">Looking for new pictures…</string>
+    <string name="home_last_refresh">Last checked %1$s. %2$s</string>
+    <string name="home_no_sources">All sources are off, so there is nothing to show. Turn one on under What to show.</string>
     <string name="home_privacy">No account, analytics, tracking or advertising. Everything Cosmos downloads stays on this TV.</string>
+    <string name="home_unreadable">Cosmos can\'t read its saved pictures right now.</string>
+    <plurals name="home_image_count">
+        <item quantity="one">%d picture ready to show</item>
+        <item quantity="other">%d pictures ready to show</item>
+    </plurals>
 
-    <string name="section_screensaver">Screensaver</string>
-    <string name="section_display">Display</string>
-    <string name="section_images">Images</string>
-    <string name="section_sources">Sources</string>
-    <string name="section_library">Library</string>
+    <string name="home_preview">Preview screensaver</string>
+    <string name="home_preview_summary">Watch the slideshow now. Press any button to stop.</string>
+    <string name="home_what_to_show">What to show</string>
+    <string name="home_what_to_show_summary">Choose which pictures appear.</string>
+    <string name="home_slideshow">Slideshow</string>
+    <string name="home_slideshow_summary">How long each picture stays and how it fits the screen.</string>
+    <string name="home_saved">Saved pictures</string>
+    <string name="home_saved_summary">The pictures kept on this TV.</string>
+    <string name="home_when">When it starts</string>
+    <string name="home_when_summary">How long the TV waits before the screensaver.</string>
+    <string name="home_more">More</string>
+    <string name="home_more_summary">Play without saving, reset and about.</string>
 
-    <string name="row_preview">Preview</string>
-    <string name="row_preview_summary">Watch the slideshow now. Press any button to stop.</string>
-    <string name="row_set_screensaver">Set as screensaver</string>
-    <string name="row_set_screensaver_summary">Opens the TV\'s screensaver settings. Choose Cosmos there.</string>
-    <string name="row_fit">Picture fit</string>
-    <string name="row_interval">Change image every</string>
-    <string name="row_interval_summary">How long each image stays on screen.</string>
-    <string name="row_credits">Credits</string>
+    <!-- Summaries -->
+    <string name="summary_no_saved_pictures">No saved pictures yet</string>
+    <string name="summary_playing_without_saving">Playing without saving</string>
+    <plurals name="summary_saved_pictures">
+        <item quantity="one">%1$d picture · %2$s</item>
+        <item quantity="other">%1$d pictures · %2$s</item>
+    </plurals>
+    <string name="summary_unreadable">Can\'t read saved pictures</string>
+    <string name="summary_sources_count">%1$d of %2$d</string>
+    <plurals name="every_seconds">
+        <item quantity="one">Every %d second</item>
+        <item quantity="other">Every %d seconds</item>
+    </plurals>
+    <plurals name="every_minutes">
+        <item quantity="one">Every %d minute</item>
+        <item quantity="other">Every %d minutes</item>
+    </plurals>
+
+    <!-- What to show -->
+    <string name="what_left_title">What you\'ll see</string>
+    <plurals name="what_left_count">
+        <item quantity="one">%d saved picture matches these choices.</item>
+        <item quantity="other">%d saved pictures match these choices.</item>
+    </plurals>
+    <string name="what_left_none">No saved picture matches these choices yet. Cosmos looks for more when it can.</string>
+    <string name="row_collection">Collection</string>
+    <string name="row_sources">Sources</string>
+    <string name="row_sources_summary">Pick individual sources.</string>
     <string name="row_quality">Picture quality</string>
-    <string name="row_refresh">Refresh now</string>
-    <string name="row_refresh_summary">Checks the sources for new images. This also happens automatically.</string>
-    <string name="row_clear">Clear downloaded images</string>
-    <string name="row_clear_summary">Deletes the local image cache.</string>
-    <string name="row_clear_confirm">Press select again to delete every downloaded image.</string>
+    <string name="row_licence">Free-to-reuse pictures only</string>
+    <string name="licence_on_summary">Only pictures verified as CC BY 4.0 or NASA public domain are saved and shown. Pictures already saved are kept.</string>
+    <string name="licence_off_summary">Any publicly available picture from your sources may be saved and shown.</string>
 
-    <string name="value_on">On</string>
-    <string name="value_off">Off</string>
+    <string name="collection_everything">Everything</string>
+    <string name="collection_everything_summary">All six sources.</string>
+    <string name="collection_deep_space">Deep space</string>
+    <string name="collection_deep_space_summary">Hubble, Webb, ESO and NOIRLab observatory pictures.</string>
+    <string name="collection_potd">Picture of the day</string>
+    <string name="collection_potd_summary">NASA\'s Astronomy Picture of the Day archive.</string>
+    <string name="collection_nasa">NASA only</string>
+    <string name="collection_nasa_summary">NASA Image Library and Astronomy Picture of the Day.</string>
+    <string name="collection_custom">Custom</string>
+    <string name="collection_custom_summary">Choose the sources yourself. Select to pick them.</string>
+
+    <string name="quality_uhd">4K only</string>
+    <string name="quality_uhd_summary">Only pictures at least 3840 x 2160. Fewer choices; no resolution fallback.</string>
+    <string name="quality_uhd_preferred">4K when possible</string>
+    <string name="quality_uhd_preferred_summary">Also uses Full HD while fewer than 20 suitable 4K pictures are saved.</string>
+    <string name="quality_fhd">Full HD or better</string>
+    <string name="quality_fhd_summary">Pictures at least 1920 x 1080.</string>
+    <string name="quality_hd">HD or better</string>
+    <string name="quality_hd_summary">Pictures at least 1280 x 720. Chosen earlier; still honoured.</string>
+    <string name="quality_sd">SD or better</string>
+    <string name="quality_sd_summary">Pictures at least 854 x 480. Chosen earlier; still honoured.</string>
+    <string name="quality_any">Any size</string>
+    <string name="quality_any_summary">Allows smaller pictures; the other source and content choices still apply.</string>
+
+    <!-- Sources -->
+    <string name="sources_left_title">Sources</string>
+    <string name="sources_left_body">Turn individual sources on or off. Pictures already saved from a source you turn off are kept for later.</string>
+    <string name="source_off_summary">Off. Not used for showing or saving.</string>
+    <string name="summary_every_minute">Every minute</string>
+
+    <!-- Slideshow -->
+    <string name="slideshow_left_body">Changes apply straight away. Choose See it full screen to check them on the whole TV.</string>
+    <string name="row_interval">Time per picture</string>
+    <string name="row_interval_summary">How long each picture stays on screen.</string>
+    <string name="row_fit">Picture fit</string>
+    <string name="row_credits">Credits</string>
+    <string name="row_fullscreen">See it full screen</string>
+    <string name="row_fullscreen_summary">Watch the slideshow now. Press any button to stop.</string>
 
     <string name="fit_fill">Fill screen</string>
     <string name="fit_fill_summary">Fills the screen without distortion, trimming edges that do not fit.</string>
@@ -42,55 +110,70 @@
     <string name="fit_auto">Auto</string>
     <string name="fit_auto_summary">Fills the screen when little would be trimmed, otherwise shows the whole picture.</string>
     <string name="fit_original">Original size</string>
-    <string name="fit_original_summary">One image pixel per screen pixel, centred. Large images are trimmed.</string>
+    <string name="fit_original_summary">One picture pixel per screen pixel, centred. Large pictures are trimmed.</string>
     <string name="fit_stretch">Stretch</string>
-    <string name="fit_stretch_summary">Stretches every image to the whole screen, distorting its proportions.</string>
+    <string name="fit_stretch_summary">Stretches every picture to the whole screen, distorting its proportions.</string>
 
     <string name="credits_off">Off</string>
     <string name="credits_off_summary">No title or credit is shown on screen.</string>
-    <string name="row_collection">Image collection</string>
-    <string name="row_stream_only">Stream instead of cache</string>
-    <string name="stream_only_on_summary">Every image is downloaded as it is shown and then deleted. The cached library is left alone.</string>
-    <string name="stream_only_off_summary">Use the cached library. Streaming only steps in when space runs out.</string>
-    <string name="row_licence">Only openly licensed images</string>
-    <string name="licence_on_summary">Only images verified as CC BY 4.0 or as NASA public-domain works.</string>
-    <string name="licence_off_summary">Any publicly available image from the sources below.</string>
-    <string name="collection_everything">Everything</string>
-    <string name="collection_everything_summary">All six sources.</string>
-    <string name="collection_deep_space">Deep space</string>
-    <string name="collection_deep_space_summary">Hubble, Webb, ESO and NOIRLab observatory images.</string>
-    <string name="collection_potd">Picture of the day</string>
-    <string name="collection_potd_summary">NASA\'s Astronomy Picture of the Day archive.</string>
-    <string name="collection_nasa">NASA only</string>
-    <string name="collection_nasa_summary">NASA Image Library and Astronomy Picture of the Day.</string>
-    <string name="collection_custom">Custom</string>
-    <string name="collection_custom_summary">Chosen individually under Sources. Select to pick a preset.</string>
-
     <string name="credits_subtle">Subtle</string>
     <string name="credits_subtle_summary">Small, faint title and credit that fade after a few seconds.</string>
     <string name="credits_detailed">Detailed</string>
     <string name="credits_detailed_summary">Title, credit, source and licence on a soft backing.</string>
 
-    <string name="quality_uhd">4K only</string>
-    <string name="quality_uhd_summary">Only images that cover a 4K screen without upscaling.</string>
-    <string name="quality_uhd_preferred">4K, else 1080p</string>
-    <string name="quality_uhd_preferred_summary">Prefers 4K images, adding 1080p ones while fewer than 20 4K images are available.</string>
-    <string name="quality_fhd">1080p or better</string>
-    <string name="quality_hd">720p or better</string>
-    <string name="quality_sd">480p or better</string>
-    <string name="quality_minimum_summary">Skips images too small to cover the screen at this resolution.</string>
-    <string name="quality_any">Any size</string>
-    <string name="quality_any_summary">Uses images of any resolution. Small ones will look soft.</string>
+    <!-- Saved pictures -->
+    <string name="saved_left_title">On this TV</string>
+    <string name="row_refresh">Look for new pictures now</string>
+    <string name="row_refresh_summary">Checks the sources now. This also happens automatically.</string>
 
+    <!-- When it starts -->
+    <string name="when_left_body">The TV decides when its screensaver starts, and it can delay it. Press any button to stop the screensaver.</string>
+    <string name="row_tv_screensaver">TV screensaver</string>
+    <string name="tv_screensaver_cosmos">Cosmos</string>
+    <string name="tv_screensaver_other">Another</string>
+    <string name="tv_screensaver_none">None</string>
+    <string name="tv_screensaver_unknown">Can\'t check</string>
+    <string name="tv_screensaver_cosmos_summary">Cosmos is selected. Select to open the TV\'s screensaver settings.</string>
+    <string name="tv_screensaver_other_summary">Another screensaver is selected. Select to choose Cosmos in the TV\'s settings.</string>
+    <string name="tv_screensaver_none_summary">No screensaver is selected. Select to choose Cosmos in the TV\'s settings.</string>
+    <string name="tv_screensaver_unknown_summary">This TV doesn\'t let Cosmos check. Select to open the TV\'s screensaver settings.</string>
+
+    <!-- More -->
+    <string name="more_left_body">Less common choices, kept out of the way.</string>
+    <string name="row_stream_only">Play without saving</string>
+    <string name="stream_only_on_summary">Pictures come straight from the internet and are not saved. Saved pictures are kept but not used. Needs the internet.</string>
+    <string name="stream_only_off_summary">Plays from the saved pictures. Turn on to bypass them; they are kept. Needs the internet.</string>
+    <string name="row_clear">Clear saved pictures</string>
+    <string name="row_clear_summary">Removes saved pictures, keeping your favourites.</string>
+    <string name="row_clear_unavailable">Not available in this version yet.</string>
+    <string name="row_reset">Reset viewing settings</string>
+    <string name="row_reset_summary">Puts what to show and how it is shown back to the defaults.</string>
+    <string name="reset_confirm_title">Reset viewing settings?</string>
+    <string name="reset_confirm_message">This puts the collection, sources, picture quality, free-to-reuse choice, time per picture, picture fit, credits and Play without saving back to their defaults. Your saved pictures, favourites, blocked pictures, space limit, download setting and TV start time are not changed.</string>
+    <string name="reset_confirm_button">Reset</string>
+    <string name="row_about">About Cosmos</string>
+    <string name="row_about_summary">Version, privacy and where pictures come from.</string>
+
+    <!-- About -->
+    <string name="about_row_version">Version</string>
+    <string name="about_row_privacy">Privacy</string>
+    <string name="about_row_pictures">Pictures and licences</string>
+    <string name="about_privacy">Pictures come straight from NASA, ESA, ESO and NOIRLab to this TV and are saved only on this TV. There is no account, no tracking and no advertising.</string>
+    <string name="about_licence">Each picture\'s credit and licence details are saved with it and shown on screen. Cosmos\'s own code is MIT-licensed; the pictures are not, and belong to their credited owners under the terms shown.</string>
+
+    <!-- Shared controls -->
+    <string name="value_on">On</string>
+    <string name="value_off">Off</string>
+    <string name="picker_recommended">Recommended</string>
+    <string name="picker_selected">Selected</string>
+    <string name="confirm_cancel">Cancel</string>
+
+    <!-- Slideshow messages -->
     <string name="slideshow_fetching">Fetching space imagery…</string>
     <string name="slideshow_streaming">Not enough free space to keep images. Streaming them instead…</string>
     <string name="slideshow_streaming_only">Streaming images…</string>
     <string name="slideshow_no_space">Not enough free space to cache or stream images. Free up some space on the TV.</string>
     <string name="slideshow_empty">No images yet. Open Cosmos to download images.</string>
-    <plurals name="home_image_count">
-        <item quantity="one">%d image ready</item>
-        <item quantity="other">%d images ready</item>
-    </plurals>
     <plurals name="seconds">
         <item quantity="one">%d second</item>
         <item quantity="other">%d seconds</item>

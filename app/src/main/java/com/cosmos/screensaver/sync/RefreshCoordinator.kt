@@ -67,10 +67,11 @@ internal object RefreshCoordinator {
     }
 
     /** True when there is too little free space to keep a useful library. */
-    fun lowOnSpace(context: Context, store: CatalogueStore): Boolean {
-        val used = SelectionSnapshot.physicalBytes(store.load().entries)
-        return storageBudget(context, used) < MIN_USEFUL_BUDGET_BYTES
-    }
+    fun lowOnSpace(context: Context, store: CatalogueStore): Boolean =
+        lowOnSpace(context, SelectionSnapshot.physicalBytes(store.load().entries))
+
+    fun lowOnSpace(context: Context, usedBytes: Long): Boolean =
+        storageBudget(context, usedBytes) < MIN_USEFUL_BUDGET_BYTES
 
     /**
      * A refresh is due when the image settings changed, after [STALE_AFTER_MILLIS], or after

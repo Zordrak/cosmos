@@ -5,9 +5,10 @@ import android.content.SharedPreferences
 import com.cosmos.screensaver.rights.AssetProvider
 
 /** Local-only preferences. Nothing here leaves the device. */
-internal class CosmosSettings(context: Context) {
-    private val preferences = context.applicationContext
-        .getSharedPreferences("cosmos_settings", Context.MODE_PRIVATE)
+internal class CosmosSettings(private val preferences: SharedPreferences) {
+    constructor(context: Context) : this(
+        context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    )
 
     var intervalSeconds: Int
         get() = preferences.getInt(KEY_INTERVAL, DEFAULT_INTERVAL_SECONDS)
@@ -26,11 +27,11 @@ internal class CosmosSettings(context: Context) {
         set(value) = preferences.edit().putString(KEY_CAPTION_MODE, value.name).apply()
 
     var quality: QualityPreference
-        get() = preferences.enumValue(KEY_QUALITY, QualityPreference.UHD_ONLY)
+        get() = preferences.enumValue(KEY_QUALITY, DEFAULT_QUALITY)
         set(value) = preferences.edit().putString(KEY_QUALITY, value.name).apply()
 
     var licenceMode: LicenceMode
-        get() = preferences.enumValue(KEY_LICENCE_MODE, LicenceMode.ANY_AVAILABLE)
+        get() = preferences.enumValue(KEY_LICENCE_MODE, DEFAULT_LICENCE_MODE)
         set(value) = preferences.edit().putString(KEY_LICENCE_MODE, value.name).apply()
 
     /** Streams every image instead of using the cache; the cache is left untouched. */
@@ -59,9 +60,22 @@ internal class CosmosSettings(context: Context) {
             editor.apply()
         }
 
+    /**
+     * Puts every viewing choice back to its default: what is shown, how it is shown and Play
+     * without saving. Deliberately leaves anything that is not a viewing choice (the space limit,
+     * download mode and similar) alone, and never touches saved pictures, favourites or blocks.
+     */
+    fun resetViewingSettings() {
+        val editor = preferences.edit()
+        VIEWING_KEYS.forEach { editor.remove(it) }
+        AssetProvider.entries.forEach { editor.remove(sourceKey(it)) }
+        editor.apply()
+    }
+
     private fun sourceKey(provider: AssetProvider) = "source_${provider.name.lowercase()}"
 
     companion object {
+        const val PREFERENCES_NAME = "cosmos_settings"
         private const val KEY_INTERVAL = "interval_seconds"
         private const val KEY_DISPLAY_MODE = "display_mode"
         private const val KEY_CAPTION_MODE = "caption_mode"
@@ -71,7 +85,18 @@ internal class CosmosSettings(context: Context) {
         const val DEFAULT_INTERVAL_SECONDS = 60
         val DEFAULT_DISPLAY_MODE = DisplayMode.FILL
         val DEFAULT_CAPTION_MODE = CaptionMode.SUBTLE
+        val DEFAULT_QUALITY = QualityPreference.UHD_ONLY
+        val DEFAULT_LICENCE_MODE = LicenceMode.ANY_AVAILABLE
+        val DEFAULT_COLLECTION = CollectionPreset.EVERYTHING
         val INTERVAL_CHOICES_SECONDS = listOf(15, 30, 60, 120, 300, 600, 1800)
+
+        /**
+         * Every preference key that is a viewing choice. Later steps that add a viewing choice
+         * (order, source weights, credit size) MUST add its key here so Reset covers it.
+         */
+        private val VIEWING_KEYS = listOf(
+            KEY_INTERVAL, KEY_DISPLAY_MODE, KEY_CAPTION_MODE, KEY_QUALITY, KEY_LICENCE_MODE, KEY_STREAM_ONLY
+        )
 
         fun collectionFor(enabled: Set<AssetProvider>): CollectionPreset =
             CollectionPreset.entries.firstOrNull { it.providers == enabled } ?: CollectionPreset.CUSTOM
