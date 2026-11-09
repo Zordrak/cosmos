@@ -68,7 +68,8 @@ internal object ImagePicker {
         libraryHashes: Set<String>,
         lastShownHash: String?,
         excluded: Set<String>,
-        random: Random
+        random: Random,
+        trackArrivals: Boolean = true
     ): OrderPick? {
         val members = candidates.distinctBy { it.hash }.sortedBy { it.hash }
         val usable = members.filter { it.hash !in excluded }
@@ -76,7 +77,7 @@ internal object ImagePicker {
         return when (mode) {
             OrderMode.RANDOM -> pickRandom(state, usable, lastShownHash, random)
             OrderMode.SEQUENTIAL -> pickSequential(state, usable, lastShownHash)
-            OrderMode.FAIR -> pickFair(state, members, usable, libraryHashes, lastShownHash, random)
+            OrderMode.FAIR -> pickFair(state, members, usable, libraryHashes, lastShownHash, random, trackArrivals)
         }
     }
 
@@ -115,9 +116,10 @@ internal object ImagePicker {
         usable: List<PickCandidate>,
         libraryHashes: Set<String>,
         last: String?,
-        random: Random
+        random: Random,
+        trackArrivals: Boolean
     ): OrderPick {
-        val fair = reconcile(state.fair, members, libraryHashes)
+        val fair = reconcile(state.fair, members, libraryHashes, trackArrivals)
         val usableHashes = usable.map { it.hash }.toSet()
         val pendingSet = fair.pendingNew.toSet()
         val ordinary = usable.filter { it.hash !in pendingSet }
@@ -179,7 +181,12 @@ internal object ImagePicker {
      * keeps scores and the FIFO, queues genuinely new pictures once, and rejoins returning ones at
      * the current floor.
      */
-    internal fun reconcile(fair: FairState, members: List<PickCandidate>, libraryHashes: Set<String>): FairState {
+    internal fun reconcile(
+        fair: FairState,
+        members: List<PickCandidate>,
+        libraryHashes: Set<String>,
+        trackArrivals: Boolean = true
+    ): FairState {
         val memberHashes = members.map { it.hash }.toSet()
         if (!fair.initialized) {
             return FairState(
@@ -196,7 +203,7 @@ internal object ImagePicker {
         val arrivals = mutableListOf<PickCandidate>()
         for (member in members) {
             if (member.hash in scores || member.hash in pending) continue
-            if (member.hash !in fair.known && member.shownCount == 0L) arrivals += member else scores[member.hash] = floor
+            if (!trackArrivals || member.hash in fair.known || member.shownCount > 0L) scores[member.hash] = floor else arrivals += member
         }
         val queued = pending + arrivals.sortedWith(compareBy({ it.admittedAtEpochMillis }, { it.hash })).map { it.hash }
         val known = (fair.known + memberHashes).filter { it in libraryHashes || it in memberHashes }.toSet()

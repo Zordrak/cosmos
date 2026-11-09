@@ -3,7 +3,9 @@ package com.cosmos.screensaver.sync
 import android.content.Context
 import com.cosmos.screensaver.catalogue.CatalogueEntry
 import com.cosmos.screensaver.catalogue.CatalogueStore
+import com.cosmos.screensaver.settings.CosmosSettings
 import java.io.File
+import java.util.UUID
 
 /**
  * The last-resort mode for when free space is too low to keep a library: each image is downloaded
@@ -11,21 +13,40 @@ import java.io.File
  */
 internal class ImageStreamer(context: Context) {
     private val appContext = context.applicationContext
-    private val store = CatalogueStore(File(appContext.cacheDir, "stream"))
+    private val settings = CosmosSettings(appContext)
+    private val root = File(appContext.cacheDir, "stream")
+    private val scratch = File(root, "$SESSION_PREFIX${UUID.randomUUID()}")
+    private val store = CatalogueStore(scratch)
     private val queue = StreamQueue()
-    private val refresher by lazy {
-        RefreshCoordinator.createRefresher(appContext, store, LibraryStorage.userState(appContext)) { Long.MAX_VALUE }
-    }
+    private var refresher: CatalogueRefresher? = null
+    private var fingerprint: String? = null
+    @Volatile private var closed = false
 
     init {
-        discardAll()
+        sweepAbandoned()
     }
 
     /** True when there is enough free space to hold one image while it is being shown. */
     fun hasRoom(): Boolean = RefreshCoordinator.freeBytes(appContext) >= MIN_FREE_BYTES
 
-    /** Downloads the next image, or returns null if none could be obtained. Delete it with [discard]. */
-    fun next(): CatalogueEntry? = if (hasRoom()) refresher.streamNext(queue) else null
+    /**
+     * Downloads the next image, or returns null if none could be obtained. Delete it with [discard].
+     * The sources and quality are re-read on every call, so a change in settings starts a fresh
+     * discovery instead of serving leads found under the old ones.
+     */
+    fun next(): Streamed? {
+        if (closed || !hasRoom()) return null
+        val current = "${settings.enabledProviders.map { it.name }.sorted()}|${settings.selection}"
+        val active = refresher?.takeIf { fingerprint == current } ?: run {
+            queue.clear()
+            RefreshCoordinator.createRefresher(appContext, store, LibraryStorage.userState(appContext)) { Long.MAX_VALUE }
+                .also {
+                    refresher = it
+                    fingerprint = current
+                }
+        }
+        return active.streamNext(queue, settings.orderMode, settings::sourceWeight) { closed }
+    }
 
     fun file(entry: CatalogueEntry): File = store.imageFile(entry)
 
@@ -37,7 +58,26 @@ internal class ImageStreamer(context: Context) {
         store.imagesDirectory.listFiles()?.forEach { it.delete() }
     }
 
+    /** Stops any download in progress at its next checkpoint and removes this streamer's scratch files. */
+    fun close() {
+        closed = true
+        scratch.deleteRecursively()
+    }
+
+    /** Removes scratch left by earlier layouts or sessions that did not shut down; never touches a recent one. */
+    private fun sweepAbandoned() {
+        val cutoff = System.currentTimeMillis() - ABANDONED_AFTER_MILLIS
+        root.listFiles()?.forEach { child ->
+            val session = child.isDirectory && child.name.startsWith(SESSION_PREFIX)
+            if (child == scratch) return@forEach
+            if (!session || child.lastModified() < cutoff) child.deleteRecursively()
+        }
+    }
+
     companion object {
+        private const val SESSION_PREFIX = "s-"
+        private const val ABANDONED_AFTER_MILLIS = 10L * 60 * 1000
+
         /** One image of up to 60 MiB, plus room to decode it. */
         const val MIN_FREE_BYTES = 150L * 1024 * 1024
 

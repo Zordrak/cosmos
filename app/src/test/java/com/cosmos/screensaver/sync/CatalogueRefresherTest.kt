@@ -11,6 +11,8 @@ import com.cosmos.screensaver.rights.LicenceValidator
 import com.cosmos.screensaver.settings.ImageSelection
 import com.cosmos.screensaver.settings.LicenceMode
 import com.cosmos.screensaver.settings.QualityPreference
+import com.cosmos.screensaver.settings.OrderMode
+import com.cosmos.screensaver.settings.SourceWeight
 import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.source.DjangoplicityAdapter
 import com.cosmos.screensaver.source.Download
@@ -110,9 +112,11 @@ class CatalogueRefresherTest {
         val refresher = refresher(selection = personal)
         val queue = StreamQueue()
 
-        val entry = refresher.streamNext(queue)!!
+        val streamed = refresher.streamNext(queue, OrderMode.FAIR, ::normal)!!
+        val entry = streamed.entry
 
         assertEquals("ESA_HUBBLE:heic9901a", entry.key)
+        assertEquals("ESA_HUBBLE:heic9901a", streamed.leadKey)
         assertTrue(store.imageFile(entry).isFile)
         assertTrue(store.load().entries.isEmpty())
         assertEquals(0L, store.load().lastAttemptAtEpochMillis)
@@ -125,19 +129,103 @@ class CatalogueRefresherTest {
         val refresher = refresher(selection = personal)
         val queue = StreamQueue()
 
-        val first = refresher.streamNext(queue)!!
-        val second = refresher.streamNext(queue)!!
-        val third = refresher.streamNext(queue)!!
+        val first = refresher.streamNext(queue, OrderMode.FAIR, ::normal)!!.also(::show)
+        val second = refresher.streamNext(queue, OrderMode.FAIR, ::normal)!!.also(::show)
+        val third = refresher.streamNext(queue, OrderMode.FAIR, ::normal)!!
 
-        assertEquals(setOf("ESA_HUBBLE:heic9901a", "ESA_HUBBLE:heic9902a"), setOf(first.key, second.key))
-        assertTrue(third.key in setOf(first.key, second.key))
+        assertEquals(setOf("ESA_HUBBLE:heic9901a", "ESA_HUBBLE:heic9902a"), setOf(first.entry.key, second.entry.key))
+        assertTrue(third.entry.key in setOf(first.entry.key, second.entry.key))
+    }
+
+    @Test
+    fun streamNextDoesNotAdvanceTheOrderUntilAFrameIsAccepted() {
+        publish(hubble, "heic9901a")
+        publish(hubble, "heic9902a")
+        publish(hubble, "heic9903a")
+        val refresher = refresher(selection = personal)
+        val queue = StreamQueue()
+
+        refresher.streamNext(queue, OrderMode.SEQUENTIAL, ::normal)!!
+
+        assertNull(userState.load().streamOrder.lastAcceptedLead)
+        assertTrue(userState.load().streamOrder.leadHashes.isEmpty())
+    }
+
+    @Test
+    fun streamNextInSequentialModeFollowsProviderAndLeadOrderAcrossRestarts() {
+        listOf("heic9903a", "heic9901a", "heic9902a").forEach { publish(hubble, it) }
+        val refresher = refresher(selection = personal)
+
+        val keys = (1..3).map {
+            // A new queue each time stands in for a restart: only the persisted cursor carries over.
+            refresher.streamNext(StreamQueue(), OrderMode.SEQUENTIAL, ::normal)!!.also(::show).leadKey
+        }
+
+        assertEquals(keys.sorted(), keys)
+        assertEquals(3, keys.toSet().size)
+    }
+
+    @Test
+    fun streamNextSkipsLeadsThatFailAndCoolsThemDown() {
+        publish(hubble, "heic9901a", type = "Collage")
+        publish(hubble, "heic9902a")
+        val refresher = refresher(selection = personal)
+
+        val streamed = refresher.streamNext(StreamQueue(), OrderMode.SEQUENTIAL, ::normal)!!
+
+        assertEquals("ESA_HUBBLE:heic9902a", streamed.leadKey)
+        assertTrue(userState.load().streamOrder.attempts.any { it.leadKey == "ESA_HUBBLE:heic9901a" && it.retryAfterEpochMillis > now })
+    }
+
+    @Test
+    fun streamNextStopsWhenEveryLeadFailsOrIsBlocked() {
+        publish(hubble, "heic9901a", type = "Collage")
+        publish(hubble, "heic9902a")
+        userState.block(listOf(CatalogueStoreTest.entry("heic9902a")), now)
+
+        assertNull(refresher(selection = personal).streamNext(StreamQueue(), OrderMode.FAIR, ::normal))
+    }
+
+    @Test
+    fun streamNextDiscardsAPictureIdenticalToTheOneJustShown() {
+        publish(hubble, "heic9901a")
+        val refresher = refresher(selection = personal)
+        val first = refresher.streamNext(StreamQueue(), OrderMode.SEQUENTIAL, ::normal)!!
+        userState.update { it.copy(lastShownHash = first.entry.sha256) }
+
+        val again = refresher.streamNext(StreamQueue(), OrderMode.RANDOM, ::normal)
+
+        assertNull(again)
+        assertEquals(
+            listOf("ESA_HUBBLE:heic9901a" to first.entry.sha256),
+            userState.load().streamOrder.leadHashes
+        )
+    }
+
+    @Test
+    fun streamNextHonoursCancellation() {
+        publish(hubble, "heic9901a")
+
+        assertNull(refresher(selection = personal).streamNext(StreamQueue(), OrderMode.FAIR, ::normal) { true })
     }
 
     @Test
     fun streamNextReturnsNullWhenNothingIsAvailable() {
         fetcher.offline = true
 
-        assertNull(refresher(selection = personal).streamNext(StreamQueue()))
+        assertNull(refresher(selection = personal).streamNext(StreamQueue(), OrderMode.FAIR, ::normal))
+    }
+
+    private fun normal(provider: AssetProvider) = SourceWeight.NORMAL
+
+    private fun show(streamed: Streamed) {
+        userState.commitDisplay(streamed.entry.sha256, now, emptySet()) { state ->
+            state.copy(
+                streamOrder = StreamQueue.withAccepted(
+                    state.streamOrder, streamed.next, streamed.leadKey, streamed.entry.sha256
+                )
+            )
+        }
     }
 
     @Test

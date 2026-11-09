@@ -13,9 +13,9 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.util.Log
 import com.cosmos.screensaver.R
-import com.cosmos.screensaver.catalogue.CachedOrder
 import com.cosmos.screensaver.catalogue.CatalogueEntry
 import com.cosmos.screensaver.catalogue.LibraryMaintenance
+import com.cosmos.screensaver.catalogue.UserState
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.settings.SelectionSnapshot
@@ -24,6 +24,7 @@ import com.cosmos.screensaver.sync.ImageStreamer
 import com.cosmos.screensaver.sync.LibraryStorage
 import com.cosmos.screensaver.sync.RefreshCoordinator
 import com.cosmos.screensaver.sync.RefreshJobService
+import com.cosmos.screensaver.sync.StreamQueue
 import java.io.File
 import java.io.IOException
 import kotlin.random.Random
@@ -69,7 +70,7 @@ internal class SlideshowController(
         worker?.quitSafely()
         worker = null
         workerHandler = null
-        streamer?.discardAll()
+        streamer?.close()
         streamer = null
     }
 
@@ -112,14 +113,26 @@ internal class SlideshowController(
     }
 
     private fun streamImage(): Boolean {
+        val gen = generation
         val streamer = streamer()
-        val entry = streamer.next() ?: return false
+        val streamed = streamer.next() ?: return false
+        val entry = streamed.entry
         try {
+            if (gen != generation) return false
             val frame = frameFor(streamer.file(entry), entry) ?: return false
             val attribution = Attribution.of(entry)
-            val gen = generation
             val library = store.load().entries.map(SelectionSnapshot::identity).toSet()
-            mainHandler.post { view.show(frame, attribution) { commitDisplay(gen, entry.sha256, library, null) } }
+            mainHandler.post {
+                view.show(frame, attribution) {
+                    commitDisplay(gen, entry.sha256, library) { state ->
+                        state.copy(
+                            streamOrder = StreamQueue.withAccepted(
+                                state.streamOrder, streamed.next, streamed.leadKey, entry.sha256
+                            )
+                        )
+                    }
+                }
+            }
             return true
         } finally {
             streamer.discard(entry)
@@ -164,7 +177,9 @@ internal class SlideshowController(
             }
             val attribution = Attribution.of(entry)
             mainHandler.post {
-                view.show(frame, attribution) { commitDisplay(gen, pick.hash, library, pick.next) }
+                view.show(frame, attribution) {
+                    commitDisplay(gen, pick.hash, library) { state -> state.copy(cachedOrder = pick.next) }
+                }
             }
             return true
         }
@@ -172,13 +187,11 @@ internal class SlideshowController(
     }
 
     /** Records a display only after its frame reached the screen, and only for the session that chose it. */
-    private fun commitDisplay(gen: Int, hash: String, library: Set<String>, next: CachedOrder?) {
+    private fun commitDisplay(gen: Int, hash: String, library: Set<String>, order: (UserState) -> UserState) {
         if (gen != generation) return
         val now = System.currentTimeMillis()
         LibraryStorage.post {
-            val committed = userState.commitDisplay(hash, now, library) { state ->
-                if (next == null) state else state.copy(cachedOrder = next)
-            }
+            val committed = userState.commitDisplay(hash, now, library, order)
             if (!committed) Log.w(TAG, "Unable to record that a picture was shown")
         }
     }

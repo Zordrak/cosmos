@@ -17,6 +17,8 @@ import com.cosmos.screensaver.rights.RightsUseScope
 import com.cosmos.screensaver.rights.VerifiedPolicy
 import com.cosmos.screensaver.settings.ImageSelection
 import com.cosmos.screensaver.settings.LicenceMode
+import com.cosmos.screensaver.settings.OrderMode
+import com.cosmos.screensaver.settings.SourceWeight
 import com.cosmos.screensaver.settings.Resolution
 import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.source.Candidate
@@ -40,6 +42,9 @@ import kotlin.math.min
 import kotlin.random.Random
 
 internal data class ImageDimensions(val width: Int, val height: Int)
+
+/** A streamed picture, the lead it came from, and the order state to store once its frame is shown. */
+internal class Streamed(val entry: CatalogueEntry, val leadKey: String, val next: com.cosmos.screensaver.catalogue.StreamOrder)
 
 /** Returns the decoded dimensions of a JPEG or PNG, or null if it is not a decodable image. */
 internal fun interface ImageInspector {
@@ -270,37 +275,79 @@ internal class CatalogueRefresher(
      * stored in [store]; the caller must delete it after use. Used when there is too little free
      * space to cache images. Returns null when no image could be obtained.
      */
-    fun streamNext(queue: StreamQueue): CatalogueEntry? {
+    fun streamNext(
+        queue: StreamQueue,
+        mode: OrderMode,
+        weightOf: (AssetProvider) -> SourceWeight,
+        isCancelled: () -> Boolean = { false }
+    ): Streamed? {
         store.imagesDirectory.mkdirs()
+        val failed = mutableSetOf<String>()
+        var refilledThisCall = false
+        fun refill() {
+            queue.refill(adapters, fetcher, random) { key -> userState.load().isBlocked(key, null) }
+            refilledThisCall = true
+        }
         repeat(MAX_STREAM_PROBES) {
-            if (queue.pending.isEmpty()) {
-                queue.refill(adapters, fetcher, random) { key -> userState.load().isBlocked(key, null) }
-                if (queue.pending.isEmpty()) return null
+            if (isCancelled()) return null
+            if (queue.needsRefill() && !refilledThisCall) refill()
+            val state = userState.load()
+            var choice = queue.choose(mode, state, clock(), weightOf, failed, random)
+            if (choice == null && !refilledThisCall) {
+                refill()
+                choice = queue.choose(mode, userState.load(), clock(), weightOf, failed, random)
             }
-            val (adapter, lead) = queue.pending.removeFirst()
-            val key = "${adapter.provider.name}:${lead.id}"
-            queue.tried += key
-            if (userState.load().isBlocked(key, null)) return@repeat
+            if (choice == null) return null
+            queue.noteServed()
+            val key = choice.leadKey
+            if (state.isBlocked(key, null)) {
+                failed += key
+                return@repeat
+            }
             val outcome = try {
-                when (val result = lead.resolve()) {
+                when (val result = choice.lead.resolve()) {
                     is CandidateResult.Ready -> admit(result.candidate, key)
                     else -> null
                 }
             } catch (error: IOException) {
                 null
             }
-            if (outcome is Outcome.Admitted) {
-                val entry = outcome.entry
-                val file = store.imageFile(entry)
-                LibraryMaintenance.release(file)
-                if (userState.load().isBlocked(entry.key, entry.sha256)) {
+            if (outcome !is Outcome.Admitted) {
+                failed += key
+                recordStreamFailure(key)
+                return@repeat
+            }
+            val entry = outcome.entry
+            val file = store.imageFile(entry)
+            LibraryMaintenance.release(file)
+            val current = userState.load()
+            when {
+                isCancelled() -> {
                     file.delete()
-                    return@repeat
+                    return null
                 }
-                return entry
+                current.isBlocked(entry.key, entry.sha256) -> {
+                    file.delete()
+                    failed += key
+                    recordStreamFailure(key)
+                }
+                current.lastShownHash == entry.sha256 -> {
+                    // The same picture again (e.g. under another name): learn the alias, try another lead.
+                    file.delete()
+                    failed += key
+                    userState.tryUpdate { s ->
+                        s.copy(streamOrder = StreamQueue.withAssociation(s.streamOrder, key, entry.sha256))
+                    }
+                }
+                else -> return Streamed(entry, key, choice.next)
             }
         }
         return null
+    }
+
+    private fun recordStreamFailure(leadKey: String) {
+        val now = clock()
+        userState.tryUpdate { s -> s.copy(streamOrder = StreamQueue.withFailure(s.streamOrder, leadKey, now)) }
     }
 
     private fun snapshot(): SelectionSnapshot =
