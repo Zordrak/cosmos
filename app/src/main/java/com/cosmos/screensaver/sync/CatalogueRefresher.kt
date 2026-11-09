@@ -1,10 +1,11 @@
 package com.cosmos.screensaver.sync
 
-import com.cosmos.screensaver.catalogue.Catalogue
 import com.cosmos.screensaver.catalogue.CatalogueEntry
 import com.cosmos.screensaver.catalogue.CatalogueStore
 import com.cosmos.screensaver.catalogue.EvidenceRecord
+import com.cosmos.screensaver.catalogue.LibraryMaintenance
 import com.cosmos.screensaver.catalogue.RejectionRecord
+import com.cosmos.screensaver.catalogue.UserStateStore
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.rights.DjangoplicityEvidenceVerifier
 import com.cosmos.screensaver.rights.LicenceValidator
@@ -17,8 +18,10 @@ import com.cosmos.screensaver.rights.VerifiedPolicy
 import com.cosmos.screensaver.settings.ImageSelection
 import com.cosmos.screensaver.settings.LicenceMode
 import com.cosmos.screensaver.settings.Resolution
+import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.source.Candidate
 import com.cosmos.screensaver.source.CandidateResult
+import com.cosmos.screensaver.source.ContentFilter
 import com.cosmos.screensaver.source.DjangoplicityParser
 import com.cosmos.screensaver.source.DjangoplicitySite
 import com.cosmos.screensaver.source.Fetcher
@@ -30,6 +33,7 @@ import com.cosmos.screensaver.source.SourceRejections
 import com.cosmos.screensaver.source.describe
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.min
@@ -65,10 +69,16 @@ internal data class RefreshResult(
  * Discovers candidate images from the enabled sources, applies the user's [ImageSelection], and
  * admits downloads to the local library within a storage budget. Rights are checked only when
  * the selection asks for an open licence.
+ *
+ * It works on the LIVE catalogue and [userState] at every decision rather than on a copy taken at
+ * the start, because a refresh runs for minutes while the user may block, favourite or remove
+ * pictures. Network and image work never hold the library lock; every commit is a short
+ * transaction under it. Blocked pictures are never admitted and favourites are never evicted.
  */
 internal class CatalogueRefresher(
     private val fetcher: Fetcher,
     private val store: CatalogueStore,
+    private val userState: UserStateStore,
     private val inspector: ImageInspector,
     private val territory: String?,
     private val adapters: List<SourceAdapter>,
@@ -87,7 +97,9 @@ internal class CatalogueRefresher(
         val maxAdmissionsWhenFull: Int = 15,
         val minBudgetBytes: Long = 50L * 1024 * 1024,
         val downloadReserveBytes: Long = 12L * 1024 * 1024,
-        val rejectionRetryMillis: Long = 30L * 24 * 60 * 60 * 1000
+        val rejectionRetryMillis: Long = 30L * 24 * 60 * 60 * 1000,
+        /** Saved pictures screened against the current content rules per refresh, one request each. */
+        val maxRechecksPerRefresh: Int = 60
     )
 
     private sealed interface Outcome {
@@ -128,36 +140,45 @@ internal class CatalogueRefresher(
 
     private val providers = adapters.map { it.provider }.toSet()
     private val policies = mutableMapOf<DjangoplicitySite, PolicyState>()
+    private var withdrawnCount = 0
 
     fun refresh(): RefreshResult {
         val startedAt = clock()
         val initial = store.loadStrict()
+        // An unreadable list of blocked pictures must stop a refresh, not let them back in.
+        userState.loadStrict()
         val fingerprint = selection.fingerprint
         val selectionChanged = initial.selectionFingerprint != fingerprint
         store.imagesDirectory.mkdirs()
-        val entries = initial.entries.filter { File(store.imagesDirectory, it.fileName).isFile }.toMutableList()
+
         val rejections = initial.rejections
             .filterValues { startedAt - it.atEpochMillis in 0 until limits.rejectionRetryMillis }
             .filterValues { !(selectionChanged && isSettingsDependent(it.reason)) }
             .toMutableMap()
+        val droppedRejectionKeys = initial.rejections.keys - rejections.keys
+        val newRejections = mutableMapOf<String, RejectionRecord>()
         val errors = mutableListOf<String>()
-        val withdrawnKeys = mutableSetOf<String>()
         var admitted = 0
         var rejected = 0
         var anySourceReached = false
         var lowSpace = false
 
-        val usedAtStart = entries.sumOf { it.byteCount }
+        withdrawnCount += LibraryMaintenance.screenLocal(store, userState).removed
+
+        val entriesAtStart = store.loadStrict().entries
+        val usedAtStart = SelectionSnapshot.physicalBytes(entriesAtStart)
         val budgetAtStart = budgetFor(usedAtStart)
         if (budgetAtStart < limits.minBudgetBytes) {
             lowSpace = true
         } else {
-            val full = entries.size >= limits.maxEntries || usedAtStart + limits.downloadReserveBytes > budgetAtStart
+            recheckSavedPictures(newRejections, rejections)
+            val full = SelectionSnapshot.physicalFiles(store.loadStrict().entries) >= limits.maxEntries ||
+                usedAtStart + limits.downloadReserveBytes > budgetAtStart
             var runAdmissions = 0
             sources@ for (adapter in adapters.sortedBy { it.provider.ordinal }) {
                 val site = DjangoplicitySite.entries.firstOrNull { it.provider == adapter.provider }
                 if (site != null && selection.licenceMode == LicenceMode.OPEN_LICENCE_ONLY) {
-                    when (val state = policyFor(site, entries, withdrawnKeys)) {
+                    when (val state = policyFor(site)) {
                         is PolicyState.Unavailable -> {
                             errors += state.reason
                             continue@sources
@@ -173,10 +194,14 @@ internal class CatalogueRefresher(
                 errors += discovery.errors
                 if (discovery.reached) anySourceReached = true
 
-                val satisfied = selection.eligible(entries.filter { it.provider in providers }).map { it.key }.toSet()
+                val satisfied = snapshot().eligibleKeys
+                val state = userState.load()
                 val keyPrefix = "${adapter.provider.name}:"
                 val leads = discovery.leads
-                    .filter { "$keyPrefix${it.id}".let { key -> key !in satisfied && key !in rejections } }
+                    .filter { lead ->
+                        val key = "$keyPrefix${lead.id}"
+                        key !in satisfied && key !in rejections && !state.isBlocked(key, null)
+                    }
                     .shuffled(random)
 
                 var resolved = 0
@@ -186,30 +211,28 @@ internal class CatalogueRefresher(
                     if (full && runAdmissions >= limits.maxAdmissionsWhenFull) break@sources
                     resolved++
                     val key = "$keyPrefix${lead.id}"
-                    val outcome = when (val result = lead.resolve()) {
-                        is CandidateResult.Skip -> Outcome.Rejected(result.reason)
-                        is CandidateResult.Failed -> Outcome.Failed(result.reason)
-                        is CandidateResult.Ready -> admit(
-                            result.candidate,
-                            entries.firstOrNull { it.key == key },
-                            entries,
-                            withdrawnKeys
-                        )
+                    val outcome = try {
+                        when (val result = lead.resolve()) {
+                            is CandidateResult.Skip -> Outcome.Rejected(result.reason)
+                            is CandidateResult.Failed -> Outcome.Failed(result.reason)
+                            is CandidateResult.Ready -> when (val made = admit(result.candidate, key)) {
+                                is Outcome.Admitted -> commit(made.entry)
+                                else -> made
+                            }
+                        }
+                    } catch (error: IOException) {
+                        Outcome.Failed(error.describe())
                     }
                     when (outcome) {
                         is Outcome.Admitted -> {
-                            entries.removeAll { it.key == key }
-                            entries += outcome.entry
-                            // Persist immediately so images can be shown before the refresh ends.
-                            store.update { current ->
-                                current.copy(entries = current.entries.filterNot { it.key == key } + outcome.entry)
-                            }
                             admitted++
                             sourceAdmissions++
                             runAdmissions++
                         }
                         is Outcome.Rejected -> {
-                            rejections[key] = RejectionRecord(outcome.reason, clock())
+                            val record = RejectionRecord(outcome.reason, clock())
+                            rejections[key] = record
+                            newRejections[key] = record
                             rejected++
                         }
                         is Outcome.Failed -> errors += "${lead.id}: ${outcome.reason}"
@@ -224,24 +247,22 @@ internal class CatalogueRefresher(
         }
 
         val finishedAt = clock()
-        val partial = RefreshResult(admitted, rejected, withdrawnKeys.size, 0, errors.distinct().take(4), lowSpace)
+        val partial = RefreshResult(admitted, rejected, withdrawnCount, 0, errors.distinct().take(4), lowSpace)
         val saved = store.update { current ->
-            // Admissions and evictions are already stored; keep removals made concurrently
-            // (e.g. integrity failures found during display) and apply withdrawals.
-            val currentKeys = current.entries.map { it.key }.toSet()
-            val merged = entries.filter { it.key in currentKeys && it.key !in withdrawnKeys }
-            val available = selection.eligible(merged.filter { it.provider in providers }).size
-            Catalogue(
-                entries = merged,
-                rejections = rejections,
+            // Only this refresh's own decisions are applied; admissions, removals and blocks made
+            // meanwhile (by this refresh or by the user) are already in [current] and are kept.
+            val available = SelectionSnapshot.build(current.entries, selection, providers, userState.load()).eligible.size
+            current.copy(
+                rejections = (current.rejections - droppedRejectionKeys) + newRejections,
                 lastAttemptAtEpochMillis = finishedAt,
                 lastSuccessAtEpochMillis = if (anySourceReached) finishedAt else current.lastSuccessAtEpochMillis,
                 lastSummary = partial.copy(total = available).summary,
                 selectionFingerprint = fingerprint
             )
         }
-        deleteUnreferencedFiles(saved.entries.map { it.fileName }.toSet())
-        return partial.copy(total = selection.eligible(saved.entries.filter { it.provider in providers }).size)
+        LibraryMaintenance.deleteOrphanFiles(store, clock())
+        val total = SelectionSnapshot.build(saved.entries, selection, providers, userState.load()).eligible.size
+        return partial.copy(total = total)
     }
 
     /**
@@ -253,29 +274,88 @@ internal class CatalogueRefresher(
         store.imagesDirectory.mkdirs()
         repeat(MAX_STREAM_PROBES) {
             if (queue.pending.isEmpty()) {
-                queue.refill(adapters, fetcher, random)
+                queue.refill(adapters, fetcher, random) { key -> userState.load().isBlocked(key, null) }
                 if (queue.pending.isEmpty()) return null
             }
             val (adapter, lead) = queue.pending.removeFirst()
             val key = "${adapter.provider.name}:${lead.id}"
             queue.tried += key
+            if (userState.load().isBlocked(key, null)) return@repeat
             val outcome = try {
                 when (val result = lead.resolve()) {
-                    is CandidateResult.Ready -> admit(result.candidate, null, mutableListOf(), mutableSetOf())
+                    is CandidateResult.Ready -> admit(result.candidate, key)
                     else -> null
                 }
             } catch (error: IOException) {
                 null
             }
-            if (outcome is Outcome.Admitted) return outcome.entry
+            if (outcome is Outcome.Admitted) {
+                val entry = outcome.entry
+                val file = store.imageFile(entry)
+                LibraryMaintenance.release(file)
+                if (userState.load().isBlocked(entry.key, entry.sha256)) {
+                    file.delete()
+                    return@repeat
+                }
+                return entry
+            }
         }
         return null
     }
 
+    private fun snapshot(): SelectionSnapshot =
+        SelectionSnapshot.build(store.loadStrict().entries, selection, providers, userState.loadStrict())
+
     /** The resolution new images must meet; lower while a fallback quality is in use. */
-    private fun requiredResolution(entries: List<CatalogueEntry>): Resolution? {
-        val enabled = entries.filter { it.provider in providers }
-        return if (selection.fallbackActive(enabled)) selection.quality.fallback else selection.quality.minimum
+    private fun requiredResolution(): Resolution? =
+        if (snapshot().fallbackActive) selection.quality.fallback else selection.quality.minimum
+
+    /**
+     * Screens saved pictures that were last checked against older content rules. Their stored
+     * metadata has no description, so each one is re-read from its source; a hit withdraws it (or
+     * hides it, if it is a favourite) and a clean result is remembered so it is not asked again.
+     */
+    private fun recheckSavedPictures(
+        newRejections: MutableMap<String, RejectionRecord>,
+        rejections: MutableMap<String, RejectionRecord>
+    ) {
+        val pending = store.load().entries
+            .filter { it.contentPolicy != ContentFilter.POLICY_VERSION && it.hiddenReason.isBlank() }
+            .take(limits.maxRechecksPerRefresh)
+        for (entry in pending) {
+            val adapter = adapters.firstOrNull { it.provider == entry.provider } ?: continue
+            val reason = try {
+                adapter.recheck(fetcher, entry.providerId)
+            } catch (error: IOException) {
+                continue
+            }
+            if (reason == null) {
+                stampContentPolicy(entry)
+            } else {
+                withdrawnCount += LibraryMaintenance.withdraw(store, userState, reason) { it.key == entry.key }
+                val record = RejectionRecord(reason, clock())
+                rejections[entry.key] = record
+                newRejections[entry.key] = record
+            }
+        }
+    }
+
+    private fun stampContentPolicy(entry: CatalogueEntry) = CatalogueStore.locked {
+        try {
+            store.update { current ->
+                current.copy(
+                    entries = current.entries.map {
+                        if (it.key == entry.key && it.sha256 == entry.sha256) {
+                            it.copy(contentPolicy = ContentFilter.POLICY_VERSION)
+                        } else {
+                            it
+                        }
+                    }
+                )
+            }
+        } catch (error: IOException) {
+            // Left unstamped; it is checked again next time.
+        }
     }
 
     /**
@@ -292,18 +372,18 @@ internal class CatalogueRefresher(
         return if (required == null) suitable.take(1) else suitable
     }
 
-    private fun admit(
-        candidate: Candidate,
-        existing: CatalogueEntry?,
-        entries: MutableList<CatalogueEntry>,
-        withdrawnKeys: MutableSet<String>
-    ): Outcome {
+    /**
+     * Resolves rights and obtains the file. The returned entry's file is on disk and claimed so
+     * cleanup leaves it alone; [commit] (or the streaming caller) releases it.
+     */
+    private fun admit(candidate: Candidate, key: String): Outcome {
         val declaredWidth = candidate.declaredWidth
         val declaredHeight = candidate.declaredHeight
         if (declaredWidth != null && declaredHeight != null && !ImageSelection.suitableAspect(declaredWidth, declaredHeight)) {
             return Outcome.Rejected(SourceRejections.NOT_LANDSCAPE)
         }
-        val required = requiredResolution(entries)
+        val existing = store.load().entries.firstOrNull { it.key == key }
+        val required = requiredResolution()
         val plan = renditionPlan(candidate.options, required)
         if (plan.isEmpty()) {
             val exceedsMaximum = candidate.options.any { option ->
@@ -317,14 +397,14 @@ internal class CatalogueRefresher(
 
         var lastRejection = LOW_RESOLUTION
         for (option in plan) {
-            val licence = when (val outcome = licenceFor(candidate, option, entries, withdrawnKeys)) {
+            val licence = when (val outcome = licenceFor(candidate, option)) {
                 is LicenceOutcome.Cleared -> outcome.licence
                 is LicenceOutcome.Rejected -> return Outcome.Rejected(outcome.reason)
                 is LicenceOutcome.Failed -> return Outcome.Failed(outcome.reason)
             }
 
             val stored = reuse(existing, option.url)
-                ?: when (val downloaded = download(candidate, option, required, entries)) {
+                ?: when (val downloaded = download(candidate, key, option, required)) {
                     is Outcome.Stored -> downloaded
                     is Outcome.Rejected -> {
                         lastRejection = downloaded.reason
@@ -335,10 +415,12 @@ internal class CatalogueRefresher(
                     else -> return downloaded
                 }
             if (required != null && !required.accepts(stored.width, stored.height)) {
+                LibraryMaintenance.release(File(store.imagesDirectory, stored.fileName))
                 lastRejection = LOW_RESOLUTION
                 continue
             }
             if (!ImageSelection.withinMaximum(stored.width, stored.height)) {
+                LibraryMaintenance.release(File(store.imagesDirectory, stored.fileName))
                 lastRejection = EXCEEDS_MAX_DIMENSIONS
                 continue
             }
@@ -364,22 +446,51 @@ internal class CatalogueRefresher(
                     byteCount = stored.byteCount,
                     widthPx = stored.width,
                     heightPx = stored.height,
-                    fileName = stored.fileName
+                    fileName = stored.fileName,
+                    contentPolicy = ContentFilter.POLICY_VERSION
                 )
             )
         }
         return Outcome.Rejected(lastRejection)
     }
 
+    /**
+     * Saves an admitted entry in one short transaction that re-reads the live state: a picture
+     * blocked while it downloaded is discarded and stays blocked, and a favourite is never
+     * replaced by a different rendition of the same source key.
+     */
+    private fun commit(entry: CatalogueEntry): Outcome = CatalogueStore.locked {
+        // Holding the lock makes releasing the claim safe: cleanup cannot run until we finish.
+        LibraryMaintenance.release(store.imageFile(entry))
+        try {
+            val state = userState.loadStrict()
+            if (state.isBlocked(entry.key, entry.sha256)) {
+                userState.addBlockedAlias(entry.key, entry.sha256)
+                LibraryMaintenance.discardIfUnreferenced(store, entry.fileName)
+                return@locked Outcome.Rejected(LibraryMaintenance.BLOCKED)
+            }
+            val previous = store.loadStrict().entries.firstOrNull { it.key == entry.key }
+            if (previous != null && previous.sha256 != entry.sha256 && state.isFavourite(previous.sha256)) {
+                LibraryMaintenance.discardIfUnreferenced(store, entry.fileName)
+                return@locked Outcome.Rejected(FAVOURITE_KEPT)
+            }
+            store.update { current ->
+                current.copy(entries = current.entries.filterNot { it.key == entry.key } + entry)
+            }
+            if (previous != null && previous.fileName != entry.fileName) {
+                LibraryMaintenance.discardIfUnreferenced(store, previous.fileName)
+            }
+            Outcome.Admitted(entry)
+        } catch (error: IOException) {
+            LibraryMaintenance.discardIfUnreferenced(store, entry.fileName)
+            Outcome.Failed("unable to save image (${error.describe()})")
+        }
+    }
+
     private fun sourceLabel(candidate: Candidate) =
         candidate.djangoplicitySite?.label ?: com.cosmos.screensaver.source.Sources.label(candidate.provider)
 
-    private fun licenceFor(
-        candidate: Candidate,
-        option: RenditionOption,
-        entries: MutableList<CatalogueEntry>,
-        withdrawnKeys: MutableSet<String>
-    ): LicenceOutcome {
+    private fun licenceFor(candidate: Candidate, option: RenditionOption): LicenceOutcome {
         if (selection.licenceMode == LicenceMode.ANY_AVAILABLE) {
             return LicenceOutcome.Cleared(
                 Licence(
@@ -397,7 +508,7 @@ internal class CatalogueRefresher(
         val page = candidate.djangoplicityPage
         if (site == null || page == null) return publicDomainLicence(candidate)
 
-        val policy = when (val state = policyFor(site, entries, withdrawnKeys)) {
+        val policy = when (val state = policyFor(site)) {
             is PolicyState.Current -> state.policy
             is PolicyState.Unavailable -> return LicenceOutcome.Failed(state.reason)
             PolicyState.Mismatch -> return LicenceOutcome.Rejected("RIGHTS_POLICY_CHANGED")
@@ -461,11 +572,7 @@ internal class CatalogueRefresher(
         )
     }
 
-    private fun policyFor(
-        site: DjangoplicitySite,
-        entries: MutableList<CatalogueEntry>,
-        withdrawnKeys: MutableSet<String>
-    ): PolicyState = policies.getOrPut(site) {
+    private fun policyFor(site: DjangoplicitySite): PolicyState = policies.getOrPut(site) {
         val retrievedAt = clock()
         val html = try {
             fetcher.fetchText(site.policyUrl)
@@ -475,11 +582,10 @@ internal class CatalogueRefresher(
         if (DjangoplicityParser.policyIsCurrent(html, site)) {
             PolicyState.Current(VerifiedPolicy(site, retrievedAt))
         } else {
-            val withdrawn = entries.filter {
+            // Favourites are kept but hidden; everything else licensed under the old policy goes.
+            withdrawnCount += LibraryMaintenance.withdraw(store, userState, "RIGHTS_POLICY_CHANGED") {
                 it.provider == site.provider && it.rightsBasis == RightsBasis.CC_BY_4_0.name
             }
-            withdrawnKeys += withdrawn.map { it.key }
-            entries.removeAll(withdrawn)
             PolicyState.Mismatch
         }
     }
@@ -487,18 +593,18 @@ internal class CatalogueRefresher(
     /** Reuses an already downloaded copy of [assetUrl] instead of fetching it again. */
     private fun reuse(existing: CatalogueEntry?, assetUrl: String): Outcome.Stored? {
         if (existing == null || existing.assetUrl != assetUrl) return null
-        if (!File(store.imagesDirectory, existing.fileName).isFile) return null
+        val file = File(store.imagesDirectory, existing.fileName)
+        if (!file.isFile) return null
+        LibraryMaintenance.claim(file)
         return Outcome.Stored(existing.fileName, existing.sha256, existing.byteCount, existing.widthPx, existing.heightPx)
     }
 
-    private fun download(
-        candidate: Candidate,
-        option: RenditionOption,
-        required: Resolution?,
-        entries: MutableList<CatalogueEntry>
-    ): Outcome {
-        if (!makeRoom(entries, min(option.maxBytes, limits.downloadReserveBytes))) return Outcome.NoSpace
+    private fun download(candidate: Candidate, key: String, option: RenditionOption, required: Resolution?): Outcome {
+        if (!makeRoom(min(option.maxBytes, limits.downloadReserveBytes))) return Outcome.NoSpace
         val temporary = File(store.imagesDirectory, "download-${UUID.randomUUID()}.part")
+        LibraryMaintenance.claim(temporary)
+        var claimedTarget: File? = null
+        var stored = false
         try {
             val download = try {
                 fetcher.download(option.url, temporary, option.maxBytes)
@@ -536,45 +642,78 @@ internal class CatalogueRefresher(
                     return Outcome.Rejected("DIMENSION_MISMATCH")
                 }
             }
-            if (!makeRoom(entries, 0L, onDiskBytes = download.byteCount)) return Outcome.NoSpace
+            if (userState.load().isBlocked(key, download.sha256)) {
+                userState.addBlockedAlias(key, download.sha256)
+                return Outcome.Rejected(LibraryMaintenance.BLOCKED)
+            }
 
             val fileName = "${download.sha256}.$extension"
             val target = File(store.imagesDirectory, fileName)
-            if (target.exists()) target.delete()
-            if (!temporary.renameTo(target)) return Outcome.Failed("unable to store image")
+            val alreadySaved = target.isFile
+            // The bytes are only on disk once; a second picture with identical bytes shares the file.
+            if (!alreadySaved && !makeRoom(0L, onDiskBytes = download.byteCount)) return Outcome.NoSpace
+            LibraryMaintenance.claim(target)
+            claimedTarget = target
+            if (alreadySaved && target.length() == download.byteCount && sha256Of(target) == download.sha256) {
+                temporary.delete()
+            } else {
+                // Missing, or damaged on disk: replace it with the freshly verified download.
+                if (target.exists() && !target.delete()) return Outcome.Failed("unable to replace damaged image")
+                if (!temporary.renameTo(target)) return Outcome.Failed("unable to store image")
+            }
+            stored = true
             return Outcome.Stored(fileName, download.sha256, download.byteCount, dimensions.width, dimensions.height)
         } finally {
             temporary.delete()
+            LibraryMaintenance.release(temporary)
+            if (!stored) claimedTarget?.let(LibraryMaintenance::release)
         }
     }
 
     /**
-     * Evicts images, those that no longer qualify first and then the oldest, until [needBytes]
-     * more fit in the budget and the library has a free slot. [onDiskBytes] is a downloaded file
-     * that is not in [entries] yet, but already occupies space.
+     * Evicts whole pictures, those that no longer qualify first and then the oldest, until
+     * [needBytes] more fit in the budget and the library has a free slot. Favourites are never
+     * evicted; when only favourites remain this reports no room. [onDiskBytes] is a downloaded
+     * file that is not in the catalogue yet, but already occupies space.
      */
-    private fun makeRoom(entries: MutableList<CatalogueEntry>, needBytes: Long, onDiskBytes: Long = 0L): Boolean {
-        fun fits(): Boolean {
-            val used = entries.sumOf { it.byteCount } + onDiskBytes
-            return entries.size < limits.maxEntries && used + needBytes <= budgetFor(used)
+    private fun makeRoom(needBytes: Long, onDiskBytes: Long = 0L): Boolean {
+        val state = try {
+            userState.loadStrict()
+        } catch (error: IOException) {
+            return false
         }
-        if (fits()) return true
-        val eligible = selection.eligible(entries.filter { it.provider in providers }).map { it.key }.toSet()
-        val victims = entries.sortedWith(
-            compareBy<CatalogueEntry> { it.key in eligible }.thenBy { it.admittedAtEpochMillis }
-        )
-        for (victim in victims) {
-            store.remove(victim.key)
-            entries.remove(victim)
-            if (fits()) return true
+        while (true) {
+            val entries = try {
+                store.loadStrict().entries
+            } catch (error: IOException) {
+                return false
+            }
+            val used = SelectionSnapshot.physicalBytes(entries) + onDiskBytes
+            if (SelectionSnapshot.physicalFiles(entries) < limits.maxEntries && used + needBytes <= budgetFor(used)) {
+                return true
+            }
+            val eligible = SelectionSnapshot.build(entries, selection, providers, state).eligibleIdentities
+            val favourites = entries.filter { state.isFavourite(it.sha256) }.map(SelectionSnapshot::identity).toSet()
+            val victim = entries.groupBy(SelectionSnapshot::identity)
+                .filterKeys { it !in favourites }
+                .entries
+                .sortedWith(compareBy({ it.key in eligible }, { group -> group.value.minOf { it.admittedAtEpochMillis } }))
+                .firstOrNull() ?: return false
+            if (LibraryMaintenance.evict(store, victim.key) == 0) return false
         }
-        return false
     }
 
-    private fun deleteUnreferencedFiles(referenced: Set<String>) {
-        store.imagesDirectory.listFiles()?.forEach { file ->
-            if (file.name !in referenced) file.delete()
+    private fun sha256Of(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
         }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     companion object {
@@ -583,6 +722,7 @@ internal class CatalogueRefresher(
         const val LOW_RESOLUTION = "LOW_RESOLUTION"
         const val IMAGE_TOO_LARGE = "IMAGE_TOO_LARGE"
         const val EXCEEDS_MAX_DIMENSIONS = "EXCEEDS_MAX_DIMENSIONS"
+        const val FAVOURITE_KEPT = "FAVOURITE_KEPT"
         private const val HEADER_BYTES = 32
         private const val MAX_STREAM_PROBES = 12
 
@@ -590,7 +730,8 @@ internal class CatalogueRefresher(
         internal fun isSettingsDependent(reason: String) =
             reason.startsWith("RIGHTS_") || reason in setOf(
                 LOW_RESOLUTION, IMAGE_TOO_LARGE, EXCEEDS_MAX_DIMENSIONS, "IMAGE_TOO_SMALL",
-                SourceRejections.UNSUITABLE_TYPE, "NOT_AN_OBSERVATION", SourceRejections.NO_SUITABLE_RENDITION
+                SourceRejections.UNSUITABLE_TYPE, "NOT_AN_OBSERVATION", SourceRejections.NO_SUITABLE_RENDITION,
+                SourceRejections.NOT_A_PHOTOGRAPH
             )
     }
 }

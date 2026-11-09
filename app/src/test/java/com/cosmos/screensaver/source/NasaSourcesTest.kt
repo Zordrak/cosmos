@@ -145,6 +145,46 @@ class NasaSourcesTest {
     }
 
     @Test
+    fun descriptionsFlowIntoCandidatesAndAChartDescriptionIsSkippedBeforeAnyDownload() {
+        val chart = libraryJson.replace(
+            "\"description\":\"A galaxy.\"",
+            "\"description\":\"A galaxy echelle spectrum with wavelength increasing from left to right.\""
+        )
+        val documents = NasaLibraryAdapter.QUERIES.associate { NasaLibraryAdapter.searchUrl(it) to chart }
+        val adapter = NasaLibraryAdapter(queriesPerRefresh = NasaLibraryAdapter.QUERIES.size)
+
+        val lead = adapter.discover(FakeFetcher(documents = documents), Random(1)).leads.single()
+
+        assertEquals(CandidateResult.Skip(SourceRejections.NOT_A_PHOTOGRAPH), lead.resolve())
+        assertEquals("A galaxy.", NasaLibraryParser.items(libraryJson).single().description)
+    }
+
+    @Test
+    fun libraryRecheckFlagsAChartAndLeavesPhotographsAndUnknownItemsAlone() {
+        val chart = libraryJson.replace("Synthetic Spiral Galaxy", "Galaxy infographic")
+        val fetcherFor = { body: String ->
+            FakeFetcher(
+                documents = mapOf(
+                    NasaLibraryAdapter.lookupUrl("PIA99001") to body,
+                    NasaLibraryAdapter.lookupUrl("PIA00000") to body
+                )
+            )
+        }
+        val adapter = NasaLibraryAdapter()
+
+        assertEquals(SourceRejections.NOT_A_PHOTOGRAPH, adapter.recheck(fetcherFor(chart), "PIA99001"))
+        assertNull(adapter.recheck(fetcherFor(libraryJson), "PIA99001"))
+        assertNull(adapter.recheck(fetcherFor(libraryJson), "PIA00000"))
+        val failed = try {
+            adapter.recheck(FakeFetcher(), "PIA99001")
+            false
+        } catch (error: IOException) {
+            true
+        }
+        assertTrue(failed)
+    }
+
+    @Test
     fun unreadableHeadersAreSkippedAndUnreachableImagesFail() {
         val bad = FakeFetcher(
             documents = mapOf(ApodAdapter.listingUrl(1) to apodJson),

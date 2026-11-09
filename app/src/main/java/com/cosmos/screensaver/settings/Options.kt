@@ -85,6 +85,7 @@ internal data class ImageSelection(
             append(";quality=").append(quality.name)
             append(";maxEdge=").append(MAX_IMAGE_LONG_EDGE)
             append(";aspect=").append(MIN_ASPECT_RATIO).append('-').append(MAX_ASPECT_RATIO)
+            append(";content=").append(com.cosmos.screensaver.source.ContentFilter.POLICY_VERSION)
         }
 
     fun licenceAccepts(entry: CatalogueEntry): Boolean = when (licenceMode) {
@@ -98,21 +99,17 @@ internal data class ImageSelection(
         withinMaximum(entry.widthPx, entry.heightPx) &&
             (quality.minimum?.accepts(entry.widthPx, entry.heightPx) ?: true)
 
-    /** True while fallback-quality images should be admitted and shown. */
-    fun fallbackActive(entries: List<CatalogueEntry>): Boolean =
-        quality.fallback != null && entries.count { licenceAccepts(it) && meetsMinimum(it) } < FALLBACK_TARGET
+    /** True while fallback-quality images should be admitted and shown, given how many distinct pictures meet the minimum. */
+    fun fallbackActive(distinctQualifying: Int): Boolean =
+        quality.fallback != null && distinctQualifying < FALLBACK_TARGET
 
-    /** The entries that qualify under these settings. */
-    fun eligible(entries: List<CatalogueEntry>): List<CatalogueEntry> {
-        val licensed = entries.filter(::licenceAccepts)
-        val useFallback = fallbackActive(entries)
-        return licensed.filter { entry ->
+    /** Whether a picture that passed the licence check qualifies, given whether the fallback is in use. */
+    fun qualifies(entry: CatalogueEntry, useFallback: Boolean): Boolean =
+        licenceAccepts(entry) && (
             meetsMinimum(entry) ||
                 (useFallback && withinMaximum(entry.widthPx, entry.heightPx) &&
                     quality.fallback?.accepts(entry.widthPx, entry.heightPx) == true)
-        }
-    }
-
+            )
     companion object {
         /** Below this many qualifying images, [QualityPreference.UHD_PREFERRED] also uses its fallback. */
         const val FALLBACK_TARGET = 20

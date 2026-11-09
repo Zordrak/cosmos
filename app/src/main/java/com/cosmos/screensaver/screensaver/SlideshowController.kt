@@ -14,9 +14,13 @@ import android.os.Looper
 import android.util.Log
 import com.cosmos.screensaver.R
 import com.cosmos.screensaver.catalogue.CatalogueEntry
+import com.cosmos.screensaver.catalogue.LibraryMaintenance
+import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.settings.CosmosSettings
+import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.source.sha256Of
 import com.cosmos.screensaver.sync.ImageStreamer
+import com.cosmos.screensaver.sync.LibraryStorage
 import com.cosmos.screensaver.sync.RefreshCoordinator
 import com.cosmos.screensaver.sync.RefreshJobService
 import java.io.File
@@ -33,6 +37,8 @@ internal class SlideshowController(
 ) {
     private val settings = CosmosSettings(context)
     private val store = RefreshCoordinator.store(context)
+    private val userState = LibraryStorage.userState(context)
+    private val damagedKeys = mutableSetOf<String>()
     private val order = SlideshowOrder()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var worker: HandlerThread? = null
@@ -119,7 +125,7 @@ internal class SlideshowController(
             streamedLast = true
             return streamImage()
         }
-        val cached = settings.selection.eligible(store.load().entries.filter { it.provider in enabled })
+        val cached = eligibleEntries(enabled)
         if (shouldStream(cached.size)) {
             if (streamImage()) {
                 streamedLast = true
@@ -129,7 +135,7 @@ internal class SlideshowController(
         }
         streamedLast = false
         repeat(MAX_ATTEMPTS) {
-            val entries = settings.selection.eligible(store.load().entries.filter { it.provider in enabled })
+            val entries = eligibleEntries(enabled)
             val key = order.next(entries.map { it.key }) ?: return false
             val entry = entries.first { it.key == key }
             val frame = loadVerified(entry)
@@ -142,6 +148,11 @@ internal class SlideshowController(
         return false
     }
 
+    /** Pictures that can be shown now: one per distinct picture, excluding any found damaged this session. */
+    private fun eligibleEntries(enabled: Set<AssetProvider>): List<CatalogueEntry> =
+        SelectionSnapshot.build(store.load().entries, settings.selection, enabled, userState.load())
+            .eligible.filter { it.key !in damagedKeys }
+
     private fun loadVerified(entry: CatalogueEntry): Frame? {
         val file = store.imageFile(entry)
         val intact = try {
@@ -152,7 +163,9 @@ internal class SlideshowController(
         }
         if (!intact) {
             Log.w(TAG, "Integrity check failed for ${entry.key}; removing it")
-            store.remove(entry.key)
+            // A favourite is never deleted for this; it is skipped until the library repairs it.
+            damagedKeys += entry.key
+            LibraryMaintenance.removeKey(store, userState, entry.key)
             return null
         }
         return frameFor(file, entry)

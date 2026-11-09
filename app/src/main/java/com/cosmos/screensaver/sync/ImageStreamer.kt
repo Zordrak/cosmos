@@ -13,7 +13,9 @@ internal class ImageStreamer(context: Context) {
     private val appContext = context.applicationContext
     private val store = CatalogueStore(File(appContext.cacheDir, "stream"))
     private val queue = StreamQueue()
-    private val refresher by lazy { RefreshCoordinator.createRefresher(appContext, store) { Long.MAX_VALUE } }
+    private val refresher by lazy {
+        RefreshCoordinator.createRefresher(appContext, store, LibraryStorage.userState(appContext)) { Long.MAX_VALUE }
+    }
 
     init {
         discardAll()

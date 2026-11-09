@@ -128,6 +128,19 @@ internal class UserStateStore(
         return if (saved) removed else null
     }
 
+    /** Records [key] and [hash] on the block record that matches either, so every known alias stays excluded. */
+    fun addBlockedAlias(key: String, hash: String): Boolean = tryUpdate { state ->
+        state.copy(
+            blocked = state.blocked.map { record ->
+                if (record.matches(key, hash) && (key !in record.keys || record.sha256 == null)) {
+                    record.copy(keys = record.keys + key, sha256 = record.sha256 ?: hash.takeIf { it.isNotBlank() })
+                } else {
+                    record
+                }
+            }
+        )
+    }
+
     /**
      * Commits one actually-displayed picture: history plus any ordering change in one write. [savedHashes]
      * is every hash currently in the library so its history is never pruned. Call only for a frame that

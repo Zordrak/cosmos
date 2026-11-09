@@ -33,6 +33,27 @@ class DjangoplicityParserTest {
     }
 
     @Test
+    fun exposesTheCaptionAndRechecksSavedPagesAgainstTheContentRules() {
+        val page = DjangoplicityParser.assetPage(Fixtures.assetPage(hubble, "heic9901a"), hubble)!!
+        assertTrue(page.description.contains("A project-created description"))
+
+        val adapter = DjangoplicityAdapter(hubble) { 0L }
+        fun fetcherFor(caption: String) = object : Fetcher {
+            override fun fetchText(url: String, maxBytes: Int) =
+                if (url == hubble.pageUrl("heic9901a")) Fixtures.assetPage(hubble, "heic9901a", caption = caption)
+                else throw java.io.IOException("HTTP 404 from $url")
+            override fun fetchPrefix(url: String, maxBytes: Int) = throw java.io.IOException("unused")
+            override fun download(url: String, destination: java.io.File, maxBytes: Long): Download = throw java.io.IOException("unused")
+        }
+
+        assertNull(adapter.recheck(fetcherFor("A stacked-exposure photograph."), "heic9901a"))
+        assertEquals(
+            SourceRejections.NOT_A_PHOTOGRAPH,
+            adapter.recheck(fetcherFor("Echelle spectrum, wavelength increasing from left to right."), "heic9901a")
+        )
+    }
+
+    @Test
     fun parsesWebbStyleTableWithPaddedCells() {
         val page = DjangoplicityParser.assetPage(Fixtures.assetPage(webb, "weic9901a", type = "Collage"), webb)!!
 

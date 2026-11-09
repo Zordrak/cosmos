@@ -28,7 +28,8 @@ internal data class ApodItem(
     val title: String,
     val credit: String,
     val imageUrl: String,
-    val copyrightMarked: Boolean
+    val copyrightMarked: Boolean,
+    val description: String = ""
 )
 
 internal object ApodParser {
@@ -62,7 +63,8 @@ internal object ApodParser {
                 title = rawTitle.replace(TITLE_PREFIX, "").ifBlank { rawTitle },
                 credit = credit,
                 imageUrl = imageUrl,
-                copyrightMarked = text.contains("Copyright", ignoreCase = true) || text.contains("\u00a9")
+                copyrightMarked = text.contains("Copyright", ignoreCase = true) || text.contains("\u00a9"),
+                description = ContentFilter.clip(text)
             )
         }.distinctBy { it.slug }
     }
@@ -92,6 +94,7 @@ internal class ApodAdapter(private val pagesPerRefresh: Int = 2) : SourceAdapter
     }
 
     private fun resolve(fetcher: Fetcher, item: ApodItem): CandidateResult {
+        ContentFilter.check(item.title, item.description)?.let { return CandidateResult.Skip(it) }
         val (width, height) = try {
             probeDimensions(fetcher, item.imageUrl)
         } catch (error: IOException) {
@@ -107,7 +110,8 @@ internal class ApodAdapter(private val pagesPerRefresh: Int = 2) : SourceAdapter
                 options = listOf(RenditionOption(item.imageUrl, imageMaxBytes(null), width, height)),
                 declaredWidth = width,
                 declaredHeight = height,
-                copyrightMarked = item.copyrightMarked
+                copyrightMarked = item.copyrightMarked,
+                description = item.description
             )
         )
     }
@@ -128,7 +132,8 @@ internal data class NasaLibraryItem(
     val originalUrl: String,
     val previewWidth: Int,
     val previewHeight: Int,
-    val copyrightMarked: Boolean
+    val copyrightMarked: Boolean,
+    val description: String = ""
 )
 
 internal object NasaLibraryParser {
@@ -174,6 +179,20 @@ internal object NasaLibraryParser {
         (0 until array.length()).mapNotNull { parse(array.getJSONObject(it)) }
     } catch (_: JSONException) {
         emptyList()
+    }
+
+    /** Title and description of one item whatever the discovery rules think of it, or null if absent. */
+    fun textOf(json: String, nasaId: String): Pair<String, String>? = try {
+        val array = org.json.JSONObject(json).getJSONObject("collection").getJSONArray("items")
+        (0 until array.length()).asSequence()
+            .mapNotNull { array.optJSONObject(it)?.optJSONArray("data")?.optJSONObject(0) }
+            .firstOrNull { it.optString("nasa_id") == nasaId }
+            ?.let { data ->
+                HtmlText.toPlainText(data.optString("title")) to
+                    ContentFilter.clip(HtmlText.toPlainText(data.optString("description")))
+            }
+    } catch (_: JSONException) {
+        null
     }
 
     private fun parse(item: org.json.JSONObject): NasaLibraryItem? {
@@ -225,7 +244,8 @@ internal object NasaLibraryParser {
             originalUrl = url,
             previewWidth = previewWidth,
             previewHeight = previewHeight,
-            copyrightMarked = text.contains("\u00a9") || text.contains("copyright", ignoreCase = true)
+            copyrightMarked = text.contains("\u00a9") || text.contains("copyright", ignoreCase = true),
+            description = ContentFilter.clip(description)
         )
     }
 }
@@ -251,6 +271,7 @@ internal class NasaLibraryAdapter(private val queriesPerRefresh: Int = 3) : Sour
     }
 
     private fun resolve(fetcher: Fetcher, item: NasaLibraryItem): CandidateResult {
+        ContentFilter.check(item.title, item.description)?.let { return CandidateResult.Skip(it) }
         val (width, height) = try {
             probeDimensions(fetcher, item.originalUrl)
         } catch (error: IOException) {
@@ -266,9 +287,15 @@ internal class NasaLibraryAdapter(private val queriesPerRefresh: Int = 3) : Sour
                 options = listOf(RenditionOption(item.originalUrl, imageMaxBytes(null), width, height)),
                 declaredWidth = width,
                 declaredHeight = height,
-                copyrightMarked = item.copyrightMarked
+                copyrightMarked = item.copyrightMarked,
+                description = item.description
             )
         )
+    }
+
+    override fun recheck(fetcher: Fetcher, providerId: String): String? {
+        val (title, description) = NasaLibraryParser.textOf(fetcher.fetchText(lookupUrl(providerId)), providerId) ?: return null
+        return ContentFilter.check(title, description)
     }
 
     companion object {
@@ -277,6 +304,9 @@ internal class NasaLibraryAdapter(private val queriesPerRefresh: Int = 3) : Sour
             "planetary nebula", "milky way", "jupiter", "saturn", "mars surface", "moon surface", "comet",
             "solar flare", "aurora", "earth from space", "spiral galaxy", "star forming region"
         )
+
+        fun lookupUrl(nasaId: String) =
+            "https://images-api.nasa.gov/search?nasa_id=${URLEncoder.encode(nasaId, "UTF-8")}&media_type=image"
 
         fun searchUrl(query: String) =
             "https://images-api.nasa.gov/search?q=${URLEncoder.encode(query, "UTF-8")}" +

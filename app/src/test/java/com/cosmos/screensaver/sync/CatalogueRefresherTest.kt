@@ -2,11 +2,16 @@ package com.cosmos.screensaver.sync
 
 import com.cosmos.screensaver.catalogue.CatalogueEntry
 import com.cosmos.screensaver.catalogue.CatalogueStore
+import com.cosmos.screensaver.catalogue.CatalogueStoreTest
+import com.cosmos.screensaver.catalogue.LibraryMaintenance
+import com.cosmos.screensaver.catalogue.UserState
+import com.cosmos.screensaver.catalogue.UserStateStore
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.rights.LicenceValidator
 import com.cosmos.screensaver.settings.ImageSelection
 import com.cosmos.screensaver.settings.LicenceMode
 import com.cosmos.screensaver.settings.QualityPreference
+import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.source.DjangoplicityAdapter
 import com.cosmos.screensaver.source.Download
 import com.cosmos.screensaver.source.DjangoplicitySite
@@ -16,6 +21,8 @@ import com.cosmos.screensaver.source.Rendition
 import com.cosmos.screensaver.source.ResourceTooLargeException
 import com.cosmos.screensaver.source.Candidate
 import com.cosmos.screensaver.source.CandidateResult
+import com.cosmos.screensaver.source.ContentFilter
+import com.cosmos.screensaver.source.SourceRejections
 import com.cosmos.screensaver.source.Discovery
 import com.cosmos.screensaver.source.Lead
 import com.cosmos.screensaver.source.RenditionOption
@@ -44,6 +51,7 @@ class CatalogueRefresherTest {
     private val personal = ImageSelection(LicenceMode.ANY_AVAILABLE, QualityPreference.UHD_ONLY)
     private lateinit var directory: File
     private lateinit var store: CatalogueStore
+    private lateinit var userState: UserStateStore
     private lateinit var fetcher: FakeFetcher
     private val dimensions = mutableMapOf<String, ImageDimensions>()
     private var now = 1_800_000_000_000L
@@ -52,6 +60,7 @@ class CatalogueRefresherTest {
     fun setUp() {
         directory = Files.createTempDirectory("cosmos-refresher").toFile()
         store = CatalogueStore(directory)
+        userState = UserStateStore(directory)
         fetcher = FakeFetcher()
         DjangoplicitySite.entries.forEach { site ->
             fetcher.documents[site.policyUrl] = Fixtures.policyPage(site)
@@ -384,7 +393,7 @@ class CatalogueRefresherTest {
         refresher(selection = selection).refresh()
 
         assertEquals(2, store.load().entries.size)
-        assertEquals(2, selection.eligible(store.load().entries).size)
+        assertEquals(2, SelectionSnapshot.build(store.load().entries, selection, setOf(AssetProvider.ESA_HUBBLE), UserState()).eligible.size)
     }
 
     @Test
@@ -503,14 +512,254 @@ class CatalogueRefresherTest {
         assertEquals(CatalogueEntry.RIGHTS_NOT_CHECKED, store.load().entries.single().rightsBasis)
     }
 
+    @Test
+    fun aBlockedKeyIsNeverResolvedOrDownloaded() {
+        publish(hubble, "heic9901a")
+        userState.block(listOf(CatalogueStoreTest.entry("heic9901a")), now)
+
+        val result = refresher().refresh()
+
+        assertEquals(0, result.admitted)
+        assertTrue(fetcher.requests.none { it.contains("heic9901a") })
+        assertTrue(store.load().entries.isEmpty())
+    }
+
+    @Test
+    fun aBlockedPictureDownloadedUnderANewKeyIsDiscardedAndItsKeyRecorded() {
+        publish(hubble, "heic9901a")
+        refresher().refresh()
+        val saved = store.load().entries.single()
+        store.remove(saved.key)
+        userState.block(listOf(saved.copy(providerId = "ghost")), now)
+
+        val result = refresher().refresh()
+
+        assertEquals(0, result.admitted)
+        assertTrue(store.load().entries.isEmpty())
+        assertEquals(emptyList<String>(), store.imagesDirectory.list()!!.toList())
+        assertEquals(LibraryMaintenance.BLOCKED, store.load().rejections.getValue("ESA_HUBBLE:heic9901a").reason)
+        assertTrue("ESA_HUBBLE:heic9901a" in userState.load().blocked.single().keys)
+    }
+
+    @Test
+    fun unblockingClearsTheCachedDecisionSoThePictureCanReturn() {
+        publish(hubble, "heic9901a")
+        refresher().refresh()
+        val saved = store.load().entries.single()
+        store.remove(saved.key)
+        userState.block(listOf(saved), now)
+        // The key is excluded up front, so record the decision a download-time block would have made.
+        store.update { it.copy(rejections = mapOf(saved.key to com.cosmos.screensaver.catalogue.RejectionRecord(LibraryMaintenance.BLOCKED, now))) }
+
+        LibraryMaintenance.unblock(store, userState, userState.load().blocked.single().id)
+        val result = refresher().refresh()
+
+        assertEquals(1, result.admitted)
+        assertTrue(store.load().rejections.isEmpty())
+    }
+
+    @Test
+    fun aPictureBlockedWhileItDownloadsStaysBlocked() {
+        publish(hubble, "heic9902a")
+        publish(hubble, "heic9901a")
+        val blockingInspector = ImageInspector { file ->
+            val id = String(file.readBytes(), Charsets.ISO_8859_1).substring(3)
+            if (id == "heic9901a") userState.block(listOf(CatalogueStoreTest.entry("heic9901a")), now)
+            dimensions[id]
+        }
+
+        refresher(inspector = blockingInspector).refresh()
+
+        assertEquals(listOf("ESA_HUBBLE:heic9902a"), store.load().entries.map { it.key })
+        assertEquals(1, store.imagesDirectory.list()!!.size)
+    }
+
+    @Test
+    fun aFavouriteIsNeverEvictedToMakeRoom() {
+        val mib = 1024L * 1024
+        (1..4).forEach { id -> publish(hubble, "heic990${id}a") }
+        (1..4).forEach { id -> fetcher.sizes[hubble.renditionUrl(Rendition.PUBLICATION, "heic990${id}a")] = 40 * mib }
+        val limits = CatalogueRefresher.Limits(maxAdmissionsPerSource = 1)
+        refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+        val favourite = store.load().entries.single()
+        userState.setFavourite(favourite.sha256, true)
+
+        repeat(4) {
+            now += 1000
+            refresher(selection = personal, limits = limits, budgetFor = { 100 * mib }).refresh()
+        }
+
+        assertTrue(store.load().entries.any { it.key == favourite.key })
+        assertTrue(store.imageFile(favourite).isFile)
+    }
+
+    @Test
+    fun aSecondSourceServingTheSameBytesSharesOneFileAndShowsOnce() {
+        publish(hubble, "heic9901a")
+        publish(webb, "weic9901a")
+        fetcher.images[webb.renditionUrl(Rendition.PUBLICATION, "weic9901a")] =
+            fetcher.images.getValue(hubble.renditionUrl(Rendition.PUBLICATION, "heic9901a"))
+
+        val result = refresher().refresh()
+
+        assertEquals(2, result.admitted)
+        val entries = store.load().entries
+        assertEquals(1, store.imagesDirectory.list()!!.size)
+        assertEquals(1, entries.map { it.fileName }.toSet().size)
+        fun shown(providers: Set<AssetProvider>) =
+            SelectionSnapshot.build(entries, licensed, providers, UserState()).eligible.size
+        assertEquals(1, shown(setOf(AssetProvider.ESA_HUBBLE, AssetProvider.ESA_WEBB)))
+        assertEquals(1, shown(setOf(AssetProvider.ESA_WEBB)))
+        assertEquals(1, shown(setOf(AssetProvider.ESA_HUBBLE)))
+        assertEquals(0, shown(emptySet()))
+        assertEquals(1, result.total)
+    }
+
+    @Test
+    fun removingOneAliasKeepsTheSharedFileAndAFavouriteIsNeverLost() {
+        publish(hubble, "heic9901a")
+        publish(webb, "weic9901a")
+        fetcher.images[webb.renditionUrl(Rendition.PUBLICATION, "weic9901a")] =
+            fetcher.images.getValue(hubble.renditionUrl(Rendition.PUBLICATION, "heic9901a"))
+        refresher().refresh()
+        val entries = store.load().entries
+        userState.setFavourite(entries.first().sha256, true)
+
+        assertTrue(LibraryMaintenance.removeKey(store, userState, "ESA_HUBBLE:heic9901a"))
+        assertTrue(store.imageFile(entries.first()).isFile)
+        assertFalse(LibraryMaintenance.removeKey(store, userState, "ESA_WEBB:weic9901a"))
+        assertEquals(1, store.load().entries.size)
+        assertTrue(store.imageFile(entries.first()).isFile)
+    }
+
+    @Test
+    fun anEntryAddedConcurrentlySurvivesTheFinalMergeAndCleanup() {
+        publish(hubble, "heic9901a")
+        val concurrent = CatalogueStoreTest.entry("zzzz9999")
+        val keepFile = File(store.imagesDirectory, concurrent.fileName)
+        val orphan = File(store.imagesDirectory, "${"a".repeat(64)}.jpg")
+        val notes = File(store.imagesDirectory, "notes.txt")
+        val addingInspector = ImageInspector { file ->
+            store.imagesDirectory.mkdirs()
+            keepFile.writeBytes(byteArrayOf(1, 2, 3))
+            orphan.writeBytes(byteArrayOf(4))
+            notes.writeText("keep")
+            store.update { it.copy(entries = it.entries + concurrent) }
+            dimensions[String(file.readBytes(), Charsets.ISO_8859_1).substring(3)]
+        }
+
+        refresher(inspector = addingInspector).refresh()
+
+        assertEquals(setOf("ESA_HUBBLE:heic9901a", concurrent.key), store.load().entries.map { it.key }.toSet())
+        assertTrue(keepFile.isFile)
+        assertFalse(orphan.exists())
+        assertTrue(notes.isFile)
+    }
+
+    @Test
+    fun anUnreadableCatalogueStopsTheRefreshWithoutDeletingAnything() {
+        publish(hubble, "heic9901a")
+        refresher().refresh()
+        val files = store.imagesDirectory.list()!!.toSet()
+        File(directory, "catalogue.json").writeText("not json")
+        File(directory, "catalogue.json.bak").delete()
+        File(directory, "catalogue.json.tmp").delete()
+
+        val failed = try {
+            refresher().refresh()
+            false
+        } catch (error: IOException) {
+            true
+        }
+
+        assertTrue(failed)
+        assertEquals(files, store.imagesDirectory.list()!!.toSet())
+    }
+
+    @Test
+    fun aFavouriteIsKeptWhenASourceNowServesDifferentBytes() {
+        publish(hubble, "heic9901a")
+        refresher(selection = personal).refresh()
+        val fakeHash = "ab".repeat(32)
+        store.update { current ->
+            current.copy(entries = current.entries.map { it.copy(sha256 = fakeHash, assetUrl = "https://old.example/x.jpg") })
+        }
+        userState.setFavourite(fakeHash, true)
+
+        val result = refresher(selection = licensed).refresh()
+
+        assertEquals(0, result.admitted)
+        assertEquals(fakeHash, store.load().entries.single().sha256)
+        assertEquals(CatalogueRefresher.FAVOURITE_KEPT, store.load().rejections.values.single().reason)
+    }
+
+    @Test
+    fun skipsAndRemembersAChartWhoseCaptionGivesItAway() {
+        publish(hubble, "heic9901a", caption = "Echelle spectrum with wavelength increasing from left to right.")
+
+        val result = refresher().refresh()
+
+        assertEquals(0, result.admitted)
+        assertEquals("NOT_A_PHOTOGRAPH", store.load().rejections.values.single().reason)
+        assertTrue(fetcher.requests.none { it.contains("cdn.") })
+    }
+
+    @Test
+    fun rechecksSavedPicturesAgainstTheCurrentContentRules() {
+        val nasa = StubAdapter(AssetProvider.NASA, "n1" to false, "n2" to false, "n3" to false)
+        nasa.recheckReasons["n1"] = SourceRejections.NOT_A_PHOTOGRAPH
+        nasa.recheckFails += "n3"
+        listOf("n1", "n2", "n3").forEach {
+            fetcher.images[nasa.url(it)] = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), it.last().code.toByte())
+            dimensions[it.last().code.toChar().toString()] = ImageDimensions(4000, 2250)
+        }
+        refresher(sites = emptySet(), selection = personal, extraAdapters = listOf(nasa)).refresh()
+        assertEquals(3, store.load().entries.size)
+        store.update { current -> current.copy(entries = current.entries.map { it.copy(contentPolicy = "") }) }
+
+        refresher(sites = emptySet(), selection = personal, extraAdapters = listOf(nasa)).refresh()
+
+        val remaining = store.load().entries.associateBy { it.providerId }
+        assertEquals(setOf("n2", "n3"), remaining.keys)
+        assertEquals(ContentFilter.POLICY_VERSION, remaining.getValue("n2").contentPolicy)
+        assertEquals("", remaining.getValue("n3").contentPolicy)
+        assertEquals(SourceRejections.NOT_A_PHOTOGRAPH, store.load().rejections.getValue("NASA:n1").reason)
+    }
+
+    @Test
+    fun aSavedFavouriteThatNowFailsTheContentRulesIsHiddenNotDeleted() {
+        val nasa = StubAdapter(AssetProvider.NASA, "n1" to false)
+        nasa.recheckReasons["n1"] = SourceRejections.NOT_A_PHOTOGRAPH
+        fetcher.images[nasa.url("n1")] = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1)
+        dimensions["\u0001"] = ImageDimensions(4000, 2250)
+        refresher(sites = emptySet(), selection = personal, extraAdapters = listOf(nasa)).refresh()
+        val saved = store.load().entries.single()
+        userState.setFavourite(saved.sha256, true)
+        store.update { current -> current.copy(entries = current.entries.map { it.copy(contentPolicy = "") }) }
+
+        refresher(sites = emptySet(), selection = personal, extraAdapters = listOf(nasa)).refresh()
+
+        val hidden = store.load().entries.single()
+        assertEquals(SourceRejections.NOT_A_PHOTOGRAPH, hidden.hiddenReason)
+        assertTrue(store.imageFile(hidden).isFile)
+        assertEquals(0, SelectionSnapshot.build(listOf(hidden), personal, setOf(AssetProvider.NASA), userState.load()).eligible.size)
+    }
+
     private class StubAdapter(
         override val provider: AssetProvider,
         vararg items: Pair<String, Boolean>
     ) : SourceAdapter {
         override val label = "Stub"
         private val items = items.toList()
+        val recheckReasons = mutableMapOf<String, String>()
+        val recheckFails = mutableSetOf<String>()
 
         fun url(id: String) = "https://images-assets.nasa.gov/image/$id/$id~orig.jpg"
+
+        override fun recheck(fetcher: Fetcher, providerId: String): String? {
+            if (providerId in recheckFails) throw IOException("offline")
+            return recheckReasons[providerId]
+        }
 
         override fun discover(fetcher: Fetcher, random: Random) = Discovery(
             items.map { (id, copyright) ->
@@ -545,6 +794,7 @@ class CatalogueRefresherTest {
     ) = CatalogueRefresher(
         fetcher = fetcher,
         store = store,
+        userState = userState,
         inspector = inspector,
         territory = territory,
         adapters = sites.map { DjangoplicityAdapter(it) { now } } + extraAdapters,

@@ -23,7 +23,9 @@ internal data class Candidate(
     val copyrightMarked: Boolean = false,
     val djangoplicitySite: DjangoplicitySite? = null,
     val djangoplicityPage: AssetPage? = null,
-    val pageRetrievedAtEpochMillis: Long = 0L
+    val pageRetrievedAtEpochMillis: Long = 0L,
+    /** Cleaned body text already fetched with the asset's page or listing; may be empty. */
+    val description: String = ""
 ) {
     val key: String get() = CatalogueEntry.keyOf(provider, id)
 }
@@ -44,6 +46,13 @@ internal interface SourceAdapter {
     val label: String
 
     fun discover(fetcher: Fetcher, random: Random): Discovery
+
+    /**
+     * Re-reads one already saved picture's description and returns a rejection reason if it should
+     * no longer be shown. Null means acceptable or unknown. Throws [IOException] when unreachable.
+     */
+    @Throws(IOException::class)
+    fun recheck(fetcher: Fetcher, providerId: String): String? = null
 }
 
 internal object SourceRejections {
@@ -52,6 +61,7 @@ internal object SourceRejections {
     const val UNSUITABLE_TYPE = "UNSUITABLE_TYPE"
     const val NO_SUITABLE_RENDITION = "NO_SUITABLE_RENDITION"
     const val NOT_LANDSCAPE = "NOT_LANDSCAPE"
+    const val NOT_A_PHOTOGRAPH = "NOT_A_PHOTOGRAPH"
 }
 
 internal fun IOException.describe(): String = message ?: javaClass.simpleName

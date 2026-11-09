@@ -12,7 +12,12 @@ internal class StreamQueue {
     val tried = mutableSetOf<String>()
 
     /** Discovers new leads from every source and queues them round-robin, in random order. */
-    fun refill(adapters: List<SourceAdapter>, fetcher: Fetcher, random: Random) {
+    fun refill(
+        adapters: List<SourceAdapter>,
+        fetcher: Fetcher,
+        random: Random,
+        isBlocked: (key: String) -> Boolean = { false }
+    ) {
         val discovered = adapters.shuffled(random).map { adapter ->
             adapter to try {
                 adapter.discover(fetcher, random).leads
@@ -21,7 +26,7 @@ internal class StreamQueue {
             }
         }
         fun fresh() = discovered.map { (adapter, leads) ->
-            leads.filter { "${adapter.provider.name}:${it.id}" !in tried }
+            leads.filter { "${adapter.provider.name}:${it.id}".let { key -> key !in tried && !isBlocked(key) } }
                 .shuffled(random)
                 .map { adapter to it }
         }

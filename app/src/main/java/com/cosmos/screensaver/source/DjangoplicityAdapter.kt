@@ -27,6 +27,11 @@ internal class DjangoplicityAdapter(
         return Discovery(ids.map { id -> Lead(id) { resolve(fetcher, id) } }, errors, reached)
     }
 
+    override fun recheck(fetcher: Fetcher, providerId: String): String? {
+        val page = DjangoplicityParser.assetPage(fetcher.fetchText(site.pageUrl(providerId)), site) ?: return null
+        return ContentFilter.check(page.title, page.description)
+    }
+
     private fun resolve(fetcher: Fetcher, id: String): CandidateResult {
         val pageUrl = site.pageUrl(id)
         val retrievedAt = clock()
@@ -39,6 +44,7 @@ internal class DjangoplicityAdapter(
             ?: return CandidateResult.Skip(SourceRejections.PAGE_UNREADABLE)
         if (page.id != id) return CandidateResult.Skip(SourceRejections.PAGE_ID_MISMATCH)
         if (!site.acceptsType(page.type)) return CandidateResult.Skip(SourceRejections.UNSUITABLE_TYPE)
+        ContentFilter.check(page.title, page.description)?.let { return CandidateResult.Skip(it) }
         val width = page.widthPx
         val height = page.heightPx
         val options = Rendition.entries.filter { it in page.renditions }.map { rendition ->
@@ -63,7 +69,8 @@ internal class DjangoplicityAdapter(
                 copyrightMarked = page.exceptionMarkers.isNotEmpty(),
                 djangoplicitySite = site,
                 djangoplicityPage = page,
-                pageRetrievedAtEpochMillis = retrievedAt
+                pageRetrievedAtEpochMillis = retrievedAt,
+                description = page.description
             )
         )
     }

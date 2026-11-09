@@ -8,9 +8,12 @@ import android.os.StatFs
 import android.util.Log
 import com.cosmos.screensaver.catalogue.Catalogue
 import com.cosmos.screensaver.catalogue.CatalogueStore
+import com.cosmos.screensaver.catalogue.UserState
+import com.cosmos.screensaver.catalogue.UserStateStore
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.settings.ImageSelection
+import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.source.HttpsFetcher
 import com.cosmos.screensaver.source.Sources
 import java.io.File
@@ -65,7 +68,7 @@ internal object RefreshCoordinator {
 
     /** True when there is too little free space to keep a useful library. */
     fun lowOnSpace(context: Context, store: CatalogueStore): Boolean {
-        val used = store.load().entries.sumOf { it.byteCount }
+        val used = SelectionSnapshot.physicalBytes(store.load().entries)
         return storageBudget(context, used) < MIN_USEFUL_BUDGET_BYTES
     }
 
@@ -78,12 +81,13 @@ internal object RefreshCoordinator {
         catalogue: Catalogue,
         now: Long,
         selection: ImageSelection,
-        enabledProviders: Set<AssetProvider>
+        enabledProviders: Set<AssetProvider>,
+        state: UserState = UserState()
     ): Boolean {
         val sinceAttempt = now - catalogue.lastAttemptAtEpochMillis
         if (sinceAttempt < 0) return true
         if (catalogue.selectionFingerprint != selection.fingerprint) return true
-        val showable = selection.eligible(catalogue.entries.filter { it.provider in enabledProviders })
+        val showable = SelectionSnapshot.build(catalogue.entries, selection, enabledProviders, state).eligible
         return if (showable.isEmpty()) {
             sinceAttempt >= EMPTY_RETRY_AFTER_MILLIS
         } else {
@@ -104,7 +108,11 @@ internal object RefreshCoordinator {
         val appContext = context.applicationContext
         val store = store(appContext)
         val settings = CosmosSettings(appContext)
-        if (!force && !isStale(store.load(), System.currentTimeMillis(), settings.selection, settings.enabledProviders)) {
+        if (!force && !isStale(
+                store.load(), System.currentTimeMillis(), settings.selection, settings.enabledProviders,
+                LibraryStorage.userState(appContext).load()
+            )
+        ) {
             return false
         }
         if (!gate.request(force)) return false
@@ -133,12 +141,14 @@ internal object RefreshCoordinator {
     internal fun createRefresher(
         context: Context,
         store: CatalogueStore,
+        userState: UserStateStore,
         budgetFor: (usedBytes: Long) -> Long
     ): CatalogueRefresher {
         val settings = CosmosSettings(context)
         return CatalogueRefresher(
             fetcher = HttpsFetcher(userAgent(context)),
             store = store,
+            userState = userState,
             inspector = ::inspectImage,
             territory = deviceTerritory(),
             adapters = Sources.adapters(settings.enabledProviders),
@@ -156,7 +166,7 @@ internal object RefreshCoordinator {
 
     private fun runOnce(appContext: Context, store: CatalogueStore): RefreshResult? {
         return try {
-            createRefresher(appContext, store) { used -> storageBudget(appContext, used) }
+            createRefresher(appContext, store, LibraryStorage.userState(appContext)) { used -> storageBudget(appContext, used) }
                 .refresh().also { Log.i(TAG, it.summary) }
         } catch (error: Exception) {
             Log.e(TAG, "Refresh failed", error)

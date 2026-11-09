@@ -3,6 +3,7 @@ package com.cosmos.screensaver.sync
 import android.content.Context
 import android.util.Log
 import com.cosmos.screensaver.catalogue.CatalogueStore
+import com.cosmos.screensaver.catalogue.LibraryMaintenance
 import com.cosmos.screensaver.catalogue.StoreRead
 import com.cosmos.screensaver.catalogue.UserStateStore
 import java.io.File
@@ -67,10 +68,17 @@ internal object LibraryStorage {
         if (result !is LibraryMigration.Result.Failed) {
             val store = CatalogueStore(filesDir)
             if (store.quarantineCorrupt()) Log.w(TAG, "A damaged library index was set aside")
-            (store.read() as? StoreRead.Ok)?.let { UserStateStore(filesDir).ensureSeeded(it.catalogue, System.currentTimeMillis()) }
+            val userState = UserStateStore(filesDir)
+            (store.read() as? StoreRead.Ok)?.let { userState.ensureSeeded(it.catalogue, System.currentTimeMillis()) }
+            // Blocks and content rules are enforced from local data alone, even while saving is paused.
+            LibraryMaintenance.screenLocal(store, userState).let {
+                if (it.removed > 0 || it.hidden > 0) Log.i(TAG, "Library screening: $it")
+            }
         }
         return result
     }
+
+    fun userState(context: Context): UserStateStore = UserStateStore(context.applicationContext.filesDir)
 
     /** The saved library, in app data. Blocks (briefly) until the shared migration has finished. */
     fun store(context: Context): CatalogueStore {

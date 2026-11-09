@@ -2,6 +2,8 @@ package com.cosmos.screensaver.settings
 
 import com.cosmos.screensaver.catalogue.CatalogueEntry
 import com.cosmos.screensaver.catalogue.CatalogueStoreTest
+import com.cosmos.screensaver.catalogue.UserState
+import com.cosmos.screensaver.rights.AssetProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -19,6 +21,9 @@ class ImageSelectionTest {
         assertEquals(ImageSelection(LicenceMode.ANY_AVAILABLE, QualityPreference.UHD_ONLY), ImageSelection())
     }
 
+    private fun eligible(selection: ImageSelection, entries: List<CatalogueEntry>) =
+        SelectionSnapshot.build(entries, selection, setOf(AssetProvider.ESA_HUBBLE), UserState())
+
     @Test
     fun uhdOnlyNeedsAtLeast4kInBothDimensions() {
         val selection = ImageSelection()
@@ -29,32 +34,35 @@ class ImageSelectionTest {
             image("d", 1920, 1080)
         )
 
-        assertEquals(listOf("a"), selection.eligible(entries).map { it.providerId })
+        assertEquals(listOf("a"), eligible(selection, entries).eligible.map { it.providerId })
     }
 
     @Test
     fun openLicenceModeOnlyShowsVerifiedImages() {
         val entries = listOf(image("a", 4000, 2250), image("b", 4000, 2250, checked = false), image("c", 4000, 2250).copy(policyVersion = "0"))
 
-        assertEquals(listOf("a"), ImageSelection(LicenceMode.OPEN_LICENCE_ONLY).eligible(entries).map { it.providerId })
-        assertEquals(3, ImageSelection().eligible(entries).size)
+        assertEquals(listOf("a"), eligible(ImageSelection(LicenceMode.OPEN_LICENCE_ONLY), entries).eligible.map { it.providerId })
+        assertEquals(3, eligible(ImageSelection(), entries).eligible.size)
     }
 
     @Test
     fun preferred4kUses1080pOnlyUntilEnough4kImagesExist() {
         val selection = ImageSelection(quality = QualityPreference.UHD_PREFERRED)
-        val few = listOf(image("hd", 1920, 1080), image("uhd", 3840, 2160))
-        assertTrue(selection.fallbackActive(few))
-        assertEquals(2, selection.eligible(few).size)
+        val hd = image("hd", 1920, 1080)
+        fun uhd(count: Int) = (1..count).map { image("u$it", 3840, 2160) }
+        assertTrue(eligible(selection, listOf(hd) + uhd(2)).fallbackActive)
+        assertEquals(3, eligible(selection, listOf(hd) + uhd(2)).eligible.size)
 
-        val many = few + (1..ImageSelection.FALLBACK_TARGET).map { image("u$it", 3840, 2160) }
-        assertFalse(selection.fallbackActive(many))
-        assertFalse(selection.eligible(many).any { it.providerId == "hd" })
+        val nineteen = eligible(selection, listOf(hd) + uhd(ImageSelection.FALLBACK_TARGET - 1))
+        assertTrue("one short of the target still uses the fallback", nineteen.fallbackActive)
+        val enough = eligible(selection, listOf(hd) + uhd(ImageSelection.FALLBACK_TARGET))
+        assertFalse(enough.fallbackActive)
+        assertFalse(enough.eligible.any { it.providerId == "hd" })
     }
 
     @Test
     fun anyQualityAcceptsEverything() {
-        assertEquals(1, ImageSelection(quality = QualityPreference.ANY).eligible(listOf(image("a", 10, 10))).size)
+        assertEquals(1, eligible(ImageSelection(quality = QualityPreference.ANY), listOf(image("a", 10, 10))).eligible.size)
     }
 
     @Test

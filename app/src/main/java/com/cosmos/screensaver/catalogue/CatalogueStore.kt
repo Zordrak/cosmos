@@ -211,6 +211,8 @@ internal object CatalogueJson {
         put("heightPx", entry.heightPx)
         put("fileName", entry.fileName)
         put("alteration", entry.alteration)
+        if (entry.hiddenReason.isNotBlank()) put("hiddenReason", entry.hiddenReason)
+        if (entry.contentPolicy.isNotBlank()) put("contentPolicy", entry.contentPolicy)
     }
 
     private fun decodeEntry(json: JSONObject): CatalogueEntry {
@@ -251,7 +253,9 @@ internal object CatalogueJson {
             widthPx = json.getInt("widthPx"),
             heightPx = json.getInt("heightPx"),
             fileName = fileName,
-            alteration = json.getString("alteration")
+            alteration = json.getString("alteration"),
+            hiddenReason = json.optString("hiddenReason"),
+            contentPolicy = json.optString("contentPolicy")
         )
     }
 }

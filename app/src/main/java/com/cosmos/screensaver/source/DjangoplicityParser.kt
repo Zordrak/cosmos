@@ -15,7 +15,9 @@ internal data class AssetPage(
     val linksUsagePolicy: Boolean,
     val statesMandatoryCredit: Boolean,
     /** Wording in the title, caption or credit suggesting the general licence may not apply. */
-    val exceptionMarkers: List<String>
+    val exceptionMarkers: List<String>,
+    /** Caption text from the page, used only for content screening. */
+    val description: String = ""
 ) {
     val imageUrls: List<String> get() = Rendition.entries.mapNotNull(renditions::get)
 }
@@ -87,7 +89,8 @@ internal object DjangoplicityParser {
             titleStart < creditMatch.range.first -> html.substring(titleStart, creditMatch.range.last + 1)
             else -> titleMatch.value + creditMatch.value
         }
-        val scanned = HtmlText.toPlainText(captionAndCredit).lowercase(Locale.ROOT)
+        val captionText = HtmlText.toPlainText(captionAndCredit)
+        val scanned = captionText.lowercase(Locale.ROOT)
         val markers = EXCEPTION_MARKERS.filter { scanned.contains(it) }
 
         return AssetPage(
@@ -102,7 +105,8 @@ internal object DjangoplicityParser {
                 html.contains("href=\"${site.policyUrl}\""),
             statesMandatoryCredit = HtmlText.normalizeWhitespace(HtmlText.decodeEntities(html))
                 .contains(MANDATORY_CREDIT_NOTICE),
-            exceptionMarkers = markers
+            exceptionMarkers = markers,
+            description = ContentFilter.clip(captionText)
         )
     }
 

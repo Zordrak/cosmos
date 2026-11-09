@@ -29,8 +29,10 @@ import com.cosmos.screensaver.settings.CosmosSettings
 import com.cosmos.screensaver.settings.DisplayMode
 import com.cosmos.screensaver.settings.LicenceMode
 import com.cosmos.screensaver.settings.QualityPreference
+import com.cosmos.screensaver.settings.SelectionSnapshot
 import com.cosmos.screensaver.settings.cycle
 import com.cosmos.screensaver.source.Sources
+import com.cosmos.screensaver.sync.LibraryStorage
 import com.cosmos.screensaver.sync.RefreshCoordinator
 import com.cosmos.screensaver.sync.RefreshJobService
 
@@ -205,9 +207,11 @@ class MainActivity : Activity() {
         val store = RefreshCoordinator.store(this)
         val catalogue = store.load()
         val enabled = settings.enabledProviders
-        val count = settings.selection.eligible(catalogue.entries.filter { it.provider in enabled }).size
+        val count = SelectionSnapshot.build(
+            catalogue.entries, settings.selection, enabled, LibraryStorage.userState(this).load()
+        ).eligible.size
         status.text = resources.getQuantityString(R.plurals.home_image_count, count, count)
-        val usedBytes = catalogue.entries.sumOf { it.byteCount }
+        val usedBytes = SelectionSnapshot.physicalBytes(catalogue.entries)
         storage.text = if (RefreshCoordinator.lowOnSpace(this, store)) {
             getString(R.string.home_low_space, Formatter.formatShortFileSize(this, usedBytes))
         } else {

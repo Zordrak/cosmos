@@ -34,7 +34,11 @@ internal data class CatalogueEntry(
     val widthPx: Int,
     val heightPx: Int,
     val fileName: String,
-    val alteration: String = ALTERATION_NONE
+    val alteration: String = ALTERATION_NONE,
+    /** Why a protected (favourite) picture is kept but never shown; blank when it can be shown. */
+    val hiddenReason: String = "",
+    /** The content-filter version this picture was last screened against; blank when never screened. */
+    val contentPolicy: String = ""
 ) {
     val key: String get() = keyOf(provider, providerId)
 
