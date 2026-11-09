@@ -58,17 +58,21 @@ internal class SettingsPages(private val env: PageEnv) {
     private val activity get() = env.activity
     private val settings get() = env.settings
     private val text get() = env.text
+    private val bulk = BulkActions(env)
 
-    fun build(page: Page, left: LinearLayout): PageContent = when (page) {
-        Page.HOME -> home(left)
-        Page.WHAT_TO_SHOW -> whatToShow(left)
-        Page.SOURCES -> sources(left)
-        Page.SLIDESHOW -> slideshow(left)
-        Page.SAVED_PICTURES -> savedPictures(left)
-        Page.SPACE -> SpacePage(env).build(left)
-        Page.WHEN_IT_STARTS -> whenItStarts(left)
-        Page.MORE -> more(left)
-        Page.ABOUT -> about(left)
+    fun build(page: Page, left: LinearLayout): PageContent {
+        bulk.reset()
+        return when (page) {
+            Page.HOME -> home(left)
+            Page.WHAT_TO_SHOW -> whatToShow(left)
+            Page.SOURCES -> sources(left)
+            Page.SLIDESHOW -> slideshow(left)
+            Page.SAVED_PICTURES -> savedPictures(left)
+            Page.SPACE -> SpacePage(env).build(left)
+            Page.WHEN_IT_STARTS -> whenItStarts(left)
+            Page.MORE -> more(left)
+            Page.ABOUT -> about(left)
+        }
     }
 
     private fun s(id: Int) = activity.getString(id)
@@ -83,6 +87,7 @@ internal class SettingsPages(private val env: PageEnv) {
         left.addView(View(activity), LinearLayout.LayoutParams(1, 0, 1f))
         left.addView(ui.text(s(R.string.home_privacy), 14f, SettingsColors.MUTED))
 
+        UndoNotice.row(ui, env)
         ui.action("preview", s(R.string.home_preview), { s(R.string.home_preview_summary) }) { env.startPreview() }
         ui.action(
             "what", s(R.string.home_what_to_show), { s(R.string.home_what_to_show_summary) },
@@ -102,7 +107,10 @@ internal class SettingsPages(private val env: PageEnv) {
         ) { env.openPage(Page.SAVED_PICTURES) }
         ui.action("when", s(R.string.home_when), { s(R.string.home_when_summary) }) { env.openPage(Page.WHEN_IT_STARTS) }
         ui.action("more", s(R.string.home_more), { s(R.string.home_more_summary) }) { env.openPage(Page.MORE) }
-        return PageContent(ui.rows, updateStatus)
+        return PageContent(ui.rows) {
+            updateStatus()
+            bulk.onSnapshot(ui)
+        }
     }
 
     /** Count, storage and last-checked lines, shared by Home and Saved pictures. Returns their updater. */
@@ -173,6 +181,7 @@ internal class SettingsPages(private val env: PageEnv) {
         left.addView(ui.text(s(R.string.what_left_title), 14f, SettingsColors.MUTED).apply { setPadding(0, ui.dp(24), 0, 0) })
         left.addView(matching)
 
+        UndoNotice.row(ui, env)
         ui.choice(
             "collection", s(R.string.row_collection),
             options = {
@@ -222,6 +231,15 @@ internal class SettingsPages(private val env: PageEnv) {
                 env.viewingChanged(refresh = true)
             }
         )
+        ui.action(
+            "tidy_hint", s(R.string.row_tidy),
+            summary = {
+                val kept = env.snapshot.composition.keptPictures
+                activity.resources.getQuantityString(R.plurals.tidy_banner, kept, kept)
+            },
+            visible = { env.snapshot.let { it.loaded && !it.unreadable && it.composition.keptPictures > 0 } },
+            enabledReason = { bulk.reason(BulkActions.Action.TIDY) }
+        ) { bulk.request(BulkActions.Action.TIDY) }
         return PageContent(ui.rows) {
             val snap = env.snapshot
             matching.text = when {
@@ -229,6 +247,7 @@ internal class SettingsPages(private val env: PageEnv) {
                 snap.eligible == 0 -> s(R.string.what_left_none)
                 else -> activity.resources.getQuantityString(R.plurals.what_left_count, snap.eligible, snap.eligible)
             }
+            bulk.onSnapshot(ui)
         }
     }
 
@@ -358,6 +377,8 @@ internal class SettingsPages(private val env: PageEnv) {
         left.addView(miniBar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             topMargin = ui.dp(16)
         })
+        val composition = ui.text("", 15f, SettingsColors.SECONDARY).apply { setPadding(0, ui.dp(12), 0, 0) }
+        left.addView(composition)
         UndoNotice.row(ui, env)
         ui.action(
             "browse", s(R.string.row_browse), { s(R.string.row_browse_summary) },
@@ -368,6 +389,10 @@ internal class SettingsPages(private val env: PageEnv) {
             value = { SpacePage.limitLabel(activity, settings.cacheLimitBytes) }
         ) { env.openPage(Page.SPACE) }
         ui.action(
+            "tidy", s(R.string.row_tidy), { s(R.string.row_tidy_summary) },
+            enabledReason = { bulk.reason(BulkActions.Action.TIDY) }
+        ) { bulk.request(BulkActions.Action.TIDY) }
+        ui.action(
             "refresh", s(R.string.row_refresh),
             { s(if (RefreshCoordinator.isRunning) R.string.home_refreshing else R.string.row_refresh_summary) }
         ) {
@@ -375,7 +400,22 @@ internal class SettingsPages(private val env: PageEnv) {
         }
         return PageContent(ui.rows) {
             updateStatus()
-            miniBar.show(env.snapshot.barLayout(settings.cacheLimitBytes))
+            val snap = env.snapshot
+            miniBar.show(snap.barLayout(settings.cacheLimitBytes))
+            val parts = mutableListOf<String>()
+            if (snap.loaded && !snap.unreadable) {
+                val res = activity.resources
+                val c = snap.composition
+                if (c.keptPictures > 0) {
+                    parts += res.getQuantityString(R.plurals.composition_kept, c.keptPictures, c.keptPictures, ByteSizes.format(c.keptBytes))
+                }
+                if (c.favouritesOutOfView > 0) {
+                    parts += res.getQuantityString(R.plurals.composition_favourites_out, c.favouritesOutOfView, c.favouritesOutOfView)
+                }
+            }
+            composition.text = parts.joinToString("\n")
+            composition.visibility = if (parts.isEmpty()) View.GONE else View.VISIBLE
+            bulk.onSnapshot(ui)
         }
     }
 
@@ -411,17 +451,17 @@ internal class SettingsPages(private val env: PageEnv) {
     private fun more(left: LinearLayout): PageContent {
         val ui = SettingsUi(activity)
         subPageLeft(ui, left, R.string.home_more, R.string.more_left_body)
+        UndoNotice.row(ui, env)
         ui.switch(
             "stream_only", s(R.string.row_stream_only),
             summary = { s(if (it) R.string.stream_only_on_summary else R.string.stream_only_off_summary) },
             get = { settings.streamOnly },
             set = { settings.streamOnly = it }
         )
-        // Disabled until a protected, undoable command exists; it must never wipe the library directly.
         ui.action(
             "clear", s(R.string.row_clear), { s(R.string.row_clear_summary) },
-            enabledReason = { s(R.string.row_clear_unavailable) }
-        ) {}
+            enabledReason = { bulk.reason(BulkActions.Action.CLEAR) }
+        ) { bulk.request(BulkActions.Action.CLEAR) }
         ui.action("reset", s(R.string.row_reset), { s(R.string.row_reset_summary) }) {
             ConfirmDialog.show(
                 activity, s(R.string.reset_confirm_title), s(R.string.reset_confirm_message), s(R.string.reset_confirm_button)
@@ -435,7 +475,7 @@ internal class SettingsPages(private val env: PageEnv) {
             value = { env.snapshot.takeIf { it.loaded && !it.unreadable }?.blockedCount?.toString() }
         ) { env.openLibrary(blocked = true) }
         ui.action("about", s(R.string.row_about), { s(R.string.row_about_summary) }) { env.openPage(Page.ABOUT) }
-        return PageContent(ui.rows)
+        return PageContent(ui.rows) { bulk.onSnapshot(ui) }
     }
 
     private fun about(left: LinearLayout): PageContent {

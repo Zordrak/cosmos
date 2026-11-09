@@ -33,7 +33,8 @@ internal data class LibrarySnapshot(
     /** Files set aside for a change that can still be undone. */
     val trashBytes: Long = 0L,
     val measurement: StorageMeasurement = StorageMeasurement.Unknown,
-    val pending: TrashBin.Pending? = null
+    val pending: TrashBin.Pending? = null,
+    val composition: CacheComposition = CacheComposition()
 ) {
     val saved: SavedPicturesState
         get() = when {
@@ -64,14 +65,13 @@ internal data class LibrarySnapshot(
                     val userState = LibraryStorage.userState(appContext).load()
                     val trash = TrashBin.of(appContext)
                     if (trash.pending() != null) trash.recoverAndExpire()
+                    val selection = SelectionSnapshot.build(entries, settings.selection, settings.enabledProviders, userState)
                     LibrarySnapshot(
                         revision = revision,
                         loaded = true,
                         files = SelectionSnapshot.physicalFiles(entries),
                         bytes = bytes,
-                        eligible = SelectionSnapshot.build(
-                            entries, settings.selection, settings.enabledProviders, userState
-                        ).eligible.size,
+                        eligible = selection.eligible.size,
                         lowOnSpace = RefreshCoordinator.lowOnSpace(appContext, bytes),
                         lastAttemptAtEpochMillis = read.catalogue.lastAttemptAtEpochMillis,
                         lastSummary = read.catalogue.lastSummary,
@@ -81,7 +81,8 @@ internal data class LibrarySnapshot(
                         blockedCount = userState.blocked.size,
                         trashBytes = trash.bytesOnDisk(),
                         measurement = RefreshCoordinator.measure(appContext),
-                        pending = trash.pending()
+                        pending = trash.pending(),
+                        composition = CacheComposition.of(entries, selection.eligibleIdentities, userState)
                     )
                 }
             }

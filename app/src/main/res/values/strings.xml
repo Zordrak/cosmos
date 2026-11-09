@@ -235,7 +235,40 @@
     <string name="stream_only_off_summary">Plays from the saved pictures. Turn on to bypass them; they are kept. Needs the internet.</string>
     <string name="row_clear">Clear saved pictures</string>
     <string name="row_clear_summary">Removes saved pictures, keeping your favourites.</string>
-    <string name="row_clear_unavailable">Not available in this version yet.</string>
+    <string name="clear_nothing">There are no pictures to remove.</string>
+    <string name="clear_confirm_title">Clear saved pictures?</string>
+    <plurals name="clear_confirm_message">
+        <item quantity="one">This removes %1$d picture (%2$s) from this TV. It would have to be downloaded again to see it.</item>
+        <item quantity="other">This removes %1$d pictures (%2$s) from this TV. They would have to be downloaded again to see them.</item>
+    </plurals>
+    <string name="clear_confirm_future">Cosmos saves new pictures later following your download settings.</string>
+    <string name="tidy_nothing">Nothing to tidy up.</string>
+    <string name="tidy_confirm_title">Tidy up saved pictures?</string>
+    <plurals name="tidy_confirm_message">
+        <item quantity="one">This removes %1$d picture (%2$s) that doesn\'t match your choices.</item>
+        <item quantity="other">This removes %1$d pictures (%2$s) that don\'t match your choices.</item>
+    </plurals>
+    <string name="tidy_confirm_future">Cosmos only saves new pictures that match your choices, following your download settings.</string>
+    <plurals name="bulk_confirm_undo">
+        <item quantity="one">You can undo this for %1$d second.</item>
+        <item quantity="other">You can undo this for %1$d seconds.</item>
+    </plurals>
+    <string name="bulk_loading">Still looking at your saved pictures.</string>
+    <string name="bulk_changed">Your saved pictures changed. Please check the new numbers.</string>
+    <string name="row_tidy">Tidy up</string>
+    <string name="row_tidy_summary">Removes saved pictures that don\'t match what you chose to show. Favourites are kept.</string>
+    <plurals name="tidy_banner">
+        <item quantity="one">%d saved picture doesn\'t match these choices. It is kept for later and replaced first when room is needed.</item>
+        <item quantity="other">%d saved pictures don\'t match these choices. They are kept for later and replaced first when room is needed.</item>
+    </plurals>
+    <plurals name="composition_kept">
+        <item quantity="one">%1$d saved picture (%2$s) doesn\'t match your choices. It is kept for later.</item>
+        <item quantity="other">%1$d saved pictures (%2$s) don\'t match your choices. They are kept for later.</item>
+    </plurals>
+    <plurals name="composition_favourites_out">
+        <item quantity="one">%d favourite doesn\'t match your choices. It is never removed.</item>
+        <item quantity="other">%d favourites don\'t match your choices. They are never removed.</item>
+    </plurals>
     <string name="row_reset">Reset viewing settings</string>
     <string name="row_reset_summary">Puts what to show and how it is shown back to the defaults.</string>
     <string name="reset_confirm_title">Reset viewing settings?</string>
