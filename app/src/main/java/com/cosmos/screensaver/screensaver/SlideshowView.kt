@@ -21,6 +21,11 @@ import com.cosmos.screensaver.settings.CaptionMode
 /**
  * Cross-fades between pre-placed [Frame]s and draws the caption chosen in settings. The surface
  * buffer matches the display's logical size (see [nativeSize] for why never more).
+ *
+ * As an [overlay] above a [SharpLayer] it shows no pictures itself: it dips to black, lets the
+ * picture underneath change ([whenCovered]), then fades the black away once [sharpShown] says the
+ * new picture is there, drawing only credits and status. If that layer fails ([sharpFailed]) it
+ * reverts to drawing the pictures itself.
  */
 internal class SlideshowView @JvmOverloads constructor(context: Context, private val overlay: Boolean = false) : SurfaceView(context), SurfaceHolder.Callback {
     private class Slide(
@@ -38,8 +43,11 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
         /** The native-resolution layer underneath now shows this picture. */
         var sharpReady = false
 
-        /** Uptime when this layer's copy of the picture started fading away to reveal that layer. */
-        var uncoverAt = UNSET
+        /** Uptime when the black cover started lifting to reveal the native-resolution picture. */
+        var revealAt = UNSET
+
+        /** Black cover level when this slide arrived; the dip continues from there. */
+        var coverAtStart = 1f
     }
 
     private fun elapsed(slide: Slide, now: Long): Long = if (slide.shownAt == UNSET) 0L else now - slide.shownAt
@@ -91,6 +99,22 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
     private var frameLoopRunning = false
     private var tokens = 0L
     private val coverPaint = Paint().apply { color = Color.BLACK }
+
+    /** True while pictures are shown by the native-resolution layer underneath rather than drawn here. */
+    private var videoOnly = overlay
+    private var pendingCover: Triple<Long, () -> Unit, () -> Unit>? = null
+
+    /** Lines shown in a small panel over everything, when diagnostics are on; null hides it. */
+    var diagnostics: List<String>? = null
+        set(value) {
+            field = value
+            requestDraw()
+        }
+    private val diagnosticsPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        typeface = Typeface.MONOSPACE
+    }
+    private val diagnosticsBacking = Paint().apply { color = 0xC0000000.toInt() }
 
     private val frameCallback = Choreographer.FrameCallback {
         frameLoopRunning = false
@@ -176,31 +200,52 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
      */
     fun show(frame: Frame, attribution: Attribution, onPosted: (() -> Unit)? = null): Long {
         val now = SystemClock.uptimeMillis()
+        val coverNow = current?.let { cover(it, now) } ?: 1f
         previous?.frame?.bitmap?.takeIf { it !== current?.frame?.bitmap }?.recycle()
         current?.let { it.captionAlphaWhenReplaced = captionAlpha(it, now) }
         previous = current
         captionOnLeft = !captionOnLeft
         val slide = Slide(frame, attribution, captionOnLeft, ++tokens, onPosted)
+        slide.coverAtStart = coverNow
         current = slide
+        pendingCover?.let { if (it.first != slide.token) it.third() }
+        pendingCover = null
         mainHandler.removeCallbacks(captionFadeStarter)
         if (surfaceReady) startClock(slide, now)
         requestDraw()
         return slide.token
     }
 
-    /**
-     * The native-resolution layer underneath now shows the picture [token]. Once its cross-fade is
-     * over, this layer's own (upscaled) copy fades away to reveal it; captions stay on this layer.
-     */
+    /** The native-resolution layer underneath now shows picture [token]; the black cover lifts to reveal it. */
     fun sharpShown(token: Long) {
         val slide = current ?: return
-        if (slide.token != token || !overlay) return
+        if (slide.token != token || !videoOnly) return
         slide.sharpReady = true
         requestDraw()
     }
 
-    /** True once the native-resolution layer may be changed without it being seen. */
-    fun covered(token: Long): Boolean = current?.token == token
+    /** The native-resolution layer can no longer be used: draw the pictures here from now on. */
+    fun sharpFailed() {
+        if (!videoOnly) return
+        videoOnly = false
+        pendingCover?.third?.invoke()
+        pendingCover = null
+        requestDraw()
+    }
+
+    /**
+     * Runs [action] as soon as the screen is fully black for picture [token], so the layer underneath
+     * can change unseen; runs [cancelled] instead if another picture arrives first or that layer fails.
+     */
+    fun whenCovered(token: Long, action: () -> Unit, cancelled: () -> Unit) {
+        if (!videoOnly || current?.token != token) {
+            cancelled()
+            return
+        }
+        pendingCover?.third?.invoke()
+        pendingCover = Triple(token, action, cancelled)
+        requestDraw()
+    }
 
     override fun onDetachedFromWindow() {
         mainHandler.removeCallbacks(captionFadeStarter)
@@ -224,19 +269,27 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
         val slide = current ?: return false
         if (slide.shownAt == UNSET) return false
         val elapsed = elapsed(slide, now)
-        if (elapsed < FADE_MILLIS) return true
-        if (slide.sharpReady && (slide.uncoverAt == UNSET || now - slide.uncoverAt < UNCOVER_MILLIS)) return true
+        if (videoOnly) {
+            if (pendingCover != null) return true
+            if (!slide.sharpReady) return cover(slide, now) < 1f
+            if (slide.revealAt == UNSET || now - slide.revealAt < DIP_MILLIS) return true
+        } else if (elapsed < FADE_MILLIS) {
+            return true
+        }
         return captionMode == CaptionMode.SUBTLE && elapsed in SUBTLE_HOLD_MILLIS until SUBTLE_HOLD_MILLIS + CAPTION_FADE_MILLIS
     }
 
     /**
-     * How much of this layer's own picture (and black backing) is shown: 1 until the native-resolution
-     * layer shows the same picture and the cross-fade is over, then fading to 0. Always 1 without that layer.
+     * How black the screen is while pictures come from the layer underneath: rising from where the
+     * last picture left it to fully black, holding until the new picture is there, then lifting.
      */
     private fun cover(slide: Slide, now: Long): Float {
-        if (!overlay || !slide.sharpReady || elapsed(slide, now) < FADE_MILLIS) return 1f
-        if (slide.uncoverAt == UNSET) slide.uncoverAt = now
-        return 1f - ((now - slide.uncoverAt).toFloat() / UNCOVER_MILLIS).coerceIn(0f, 1f)
+        if (!videoOnly) return 1f
+        if (!slide.sharpReady) {
+            return (slide.coverAtStart + elapsed(slide, now).toFloat() / DIP_MILLIS).coerceIn(0f, 1f)
+        }
+        if (slide.revealAt == UNSET) slide.revealAt = now
+        return 1f - ((now - slide.revealAt).toFloat() / DIP_MILLIS).coerceIn(0f, 1f)
     }
 
     private fun imageFade(slide: Slide, now: Long) =
@@ -276,7 +329,8 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
     private fun notifyPosted(now: Long) {
         val slide = current ?: return
         val callback = slide.onPosted ?: return
-        if (imageFade(slide, now) <= 0f) return
+        val visible = if (videoOnly) slide.sharpReady && cover(slide, now) < 1f else imageFade(slide, now) > 0f
+        if (!visible) return
         slide.onPosted = null
         callback()
     }
@@ -301,22 +355,65 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
 
     private fun render(canvas: Canvas, now: Long) {
         val slide = current
-        if (overlay) {
-            canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
-            coverPaint.alpha = ((if (slide == null) 1f else cover(slide, now)) * 255).toInt().coerceIn(0, 255)
-            canvas.drawRect(0f, 0f, bufferWidth.toFloat(), bufferHeight.toFloat(), coverPaint)
+        if (overlay) canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+        if (videoOnly) {
+            renderOverVideo(canvas, slide, now)
         } else {
             canvas.drawColor(Color.BLACK)
+            renderPictures(canvas, slide, now)
         }
+        diagnostics?.let { drawDiagnostics(canvas, it) }
+    }
+
+    private fun renderPictures(canvas: Canvas, slide: Slide?, now: Long) {
         if (slide == null) {
             message?.let { drawStatus(canvas, it, 1f) }
             return
         }
         val fade = imageFade(slide, now)
-        val cover = cover(slide, now)
         previous?.takeIf { fade < 1f }?.let { drawSlide(canvas, it, 1f - fade, it.captionAlphaWhenReplaced * (1f - fade)) }
-        drawSlide(canvas, slide, fade * cover, captionAlpha(slide, now))
+        drawSlide(canvas, slide, fade, captionAlpha(slide, now))
         message?.let { if (fade < 1f) drawStatus(canvas, it, 1f - fade) else message = null }
+    }
+
+    /** Black cover, credits and status only: the picture itself is on the layer underneath. */
+    private fun renderOverVideo(canvas: Canvas, slide: Slide?, now: Long) {
+        val cover = slide?.let { cover(it, now) } ?: 1f
+        coverPaint.alpha = (cover * 255).toInt().coerceIn(0, 255)
+        canvas.drawRect(0f, 0f, bufferWidth.toFloat(), bufferHeight.toFloat(), coverPaint)
+        if (slide != null && slide.sharpReady) {
+            drawCaption(canvas, slide, captionAlpha(slide, now) * (1f - cover))
+            message = null
+        } else {
+            previous?.let { if (it.sharpReady) drawCaption(canvas, it, it.captionAlphaWhenReplaced * (1f - cover)) }
+            message?.let { drawStatus(canvas, it, 1f) }
+        }
+        val pending = pendingCover
+        if (pending != null && slide != null && pending.first == slide.token && cover >= 1f) {
+            pendingCover = null
+            mainHandler.post(pending.second)
+        }
+    }
+
+    private fun drawCaption(canvas: Canvas, slide: Slide, alpha: Float) {
+        if (alpha <= 0f) return
+        captionRenderer.draw(
+            canvas, slide.attribution, captionMode, captionScale, bufferWidth, bufferHeight, slide.captionOnLeft, alpha
+        )
+    }
+
+    private fun drawDiagnostics(canvas: Canvas, lines: List<String>) {
+        val unit = bufferHeight / 1080f
+        diagnosticsPaint.textSize = 18f * unit
+        val lineHeight = diagnosticsPaint.textSize * 1.35f
+        val pad = 14f * unit
+        val width = lines.maxOfOrNull { diagnosticsPaint.measureText(it) } ?: 0f
+        val left = 48f * unit
+        val top = 40f * unit
+        canvas.drawRect(left, top, left + width + pad * 2, top + lineHeight * lines.size + pad * 2, diagnosticsBacking)
+        lines.forEachIndexed { index, line ->
+            canvas.drawText(line, left + pad, top + pad + lineHeight * (index + 1) - lineHeight * 0.3f, diagnosticsPaint)
+        }
     }
 
     /** A quiet, left-aligned line inside the TV's safe area, never larger than the credits. */
@@ -353,8 +450,8 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
     companion object {
         private const val TAG = "CosmosSlideshowView"
         const val FADE_MILLIS = 1_500L
-        /** Fading the upscaled copy away once the native-resolution picture is underneath. */
-        const val UNCOVER_MILLIS = 600L
+        /** Each half of a dip through black between native-resolution pictures. */
+        const val DIP_MILLIS = 700L
         const val SUBTLE_HOLD_MILLIS = 15_000L
         const val CAPTION_FADE_MILLIS = 2_000L
         private const val STATUS_ALPHA = 170

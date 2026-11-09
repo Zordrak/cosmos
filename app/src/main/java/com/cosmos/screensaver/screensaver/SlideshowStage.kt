@@ -3,10 +3,12 @@ package com.cosmos.screensaver.screensaver
 import android.content.Context
 import android.view.View
 import android.widget.FrameLayout
+import com.cosmos.screensaver.settings.CosmosSettings
+import com.cosmos.screensaver.settings.Sharpness
 
 /**
- * The slideshow's views: the 1080p-class [view] for cross-fades and credits, and, where the panel
- * is larger and the TV can decode it, a [sharp] native-resolution layer underneath.
+ * The slideshow's views: the logical-size [view] for fades and credits and, when Full 4K is chosen
+ * and the TV can do it, a [sharp] native-resolution layer underneath that shows the pictures.
  */
 internal class SlideshowStage private constructor(val root: View, val view: SlideshowView, val sharp: SharpLayer?) {
     fun controller(context: Context) = SlideshowController(context, view, sharp)
@@ -18,7 +20,8 @@ internal class SlideshowStage private constructor(val root: View, val view: Slid
 
     companion object {
         fun create(context: Context): SlideshowStage {
-            val size = SharpLayer.nativeSize(context)
+            val wanted = CosmosSettings(context).sharpness == Sharpness.FULL_4K
+            val size = if (wanted) SharpLayer.nativeSize(context) else null
             if (size == null) {
                 val view = SlideshowView(context)
                 return SlideshowStage(view, view, null)

@@ -45,29 +45,50 @@ internal class SharpLayer(context: Context, val frameWidth: Int, val frameHeight
 
     val usable: Boolean get() = !failed && !released
 
+    /** Why the layer stopped being used, for diagnostics; null while it works. */
+    @Volatile var failure: String? = null
+        private set
+
+    /** How long the last picture took to convert and to decode, for diagnostics. */
+    @Volatile var lastConvertMillis = 0L
+        private set
+    @Volatile var lastDecodeMillis = 0L
+        private set
+
+    /** The decoder used for the last picture, for diagnostics. */
+    @Volatile var decoderName: String? = null
+        private set
+
     /**
      * Converts and shows [image], which is placed at [destination] within the frame (black elsewhere).
      * Takes ownership of [image] and recycles it. [onShown] runs on the main thread once the frame
-     * has been handed to the display; it never runs on failure.
+     * has been handed to the display; [onFailed] runs there instead if it could not be shown.
      */
-    fun present(image: Bitmap, destination: IntBox, onShown: () -> Unit) {
+    fun present(image: Bitmap, destination: IntBox, onShown: () -> Unit, onFailed: () -> Unit) {
         if (!usable) {
             image.recycle()
+            mainHandler.post(onFailed)
             return
         }
         worker.post {
+            var shown = false
             try {
                 if (!usable || !surfaceReady) return@post
+                val started = System.nanoTime()
                 val planes = toPlanes(image, destination)
                 image.recycle()
                 val stream = PcmH264.frame(frameWidth, frameHeight, planes.y, planes.cb, planes.cr)
-                if (decode(stream)) mainHandler.post { if (usable) onShown() }
+                val converted = System.nanoTime()
+                lastConvertMillis = (converted - started) / 1_000_000
+                shown = decode(stream)
+                lastDecodeMillis = (System.nanoTime() - converted) / 1_000_000
             } catch (error: Exception) {
                 fail("Unable to show a native-resolution picture", error)
             } catch (error: OutOfMemoryError) {
                 fail("Not enough memory for a native-resolution picture", error)
             } finally {
                 if (!image.isRecycled) image.recycle()
+                mainHandler.post(if (shown) onShown else onFailed)
             }
         }
     }
@@ -105,6 +126,7 @@ internal class SharpLayer(context: Context, val frameWidth: Int, val frameHeight
         }
         val decoder = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         codec = decoder
+        decoderName = decoder.name
         decoder.configure(format, holder.surface, null, 0)
         decoder.start()
         val input = decoder.dequeueInputBuffer(TIMEOUT_MICROS)
@@ -145,6 +167,7 @@ internal class SharpLayer(context: Context, val frameWidth: Int, val frameHeight
 
     private fun fail(message: String, error: Throwable? = null): Boolean {
         Log.w(TAG, "$message; using the standard layer only", error)
+        failure = message
         failed = true
         return false
     }

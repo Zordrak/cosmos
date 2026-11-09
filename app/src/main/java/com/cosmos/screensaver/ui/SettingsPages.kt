@@ -12,6 +12,8 @@ import com.cosmos.screensaver.R
 import com.cosmos.screensaver.rights.AssetProvider
 import com.cosmos.screensaver.settings.CaptionMode
 import com.cosmos.screensaver.settings.CaptionSize
+import com.cosmos.screensaver.settings.Sharpness
+import com.cosmos.screensaver.screensaver.SharpLayer
 import com.cosmos.screensaver.settings.OrderMode
 import com.cosmos.screensaver.settings.COLLECTION_CHOICES
 import com.cosmos.screensaver.settings.COLLECTION_CYCLE
@@ -446,9 +448,35 @@ internal class SettingsPages(private val env: PageEnv) {
             valueLabel = text::captionSize,
             enabledReason = { if (settings.captionMode == CaptionMode.OFF) s(R.string.credit_size_off_reason) else null }
         )
+        ui.choice(
+            "sharpness", s(R.string.row_sharpness),
+            options = {
+                val supported = fullSharpnessSupported
+                Sharpness.entries.map {
+                    PickerOption(
+                        it, sharpnessLabel(it), sharpnessSummary(it),
+                        recommended = it == CosmosSettings.DEFAULT_SHARPNESS,
+                        disabledReason = if (it == Sharpness.FULL_4K && !supported) s(R.string.sharpness_unavailable) else null
+                    )
+                }
+            },
+            current = { settings.sharpness },
+            onChosen = { settings.sharpness = it },
+            summary = ::sharpnessSummary,
+            valueLabel = ::sharpnessLabel
+        )
         ui.action("fullscreen", s(R.string.row_fullscreen), { s(R.string.row_fullscreen_summary) }) { env.startPreview() }
         return PageContent(ui.rows, updatePreview)
     }
+
+    /** Whether this TV can show pictures at full panel resolution on its video plane; checked once. */
+    private val fullSharpnessSupported by lazy { SharpLayer.nativeSize(activity) != null }
+
+    private fun sharpnessLabel(value: Sharpness) =
+        s(if (value == Sharpness.FULL_4K) R.string.sharpness_full else R.string.sharpness_standard)
+
+    private fun sharpnessSummary(value: Sharpness) =
+        s(if (value == Sharpness.FULL_4K) R.string.sharpness_full_summary else R.string.sharpness_standard_summary)
 
     private fun savedPictures(left: LinearLayout): PageContent {
         val ui = SettingsUi(activity)
@@ -625,6 +653,12 @@ internal class SettingsPages(private val env: PageEnv) {
                 env.viewingChanged(refresh = true)
             }
         }
+        ui.switch(
+            "diagnostics", s(R.string.row_diagnostics),
+            summary = { s(if (it) R.string.diagnostics_on_summary else R.string.diagnostics_off_summary) },
+            get = { settings.showDiagnostics },
+            set = { settings.showDiagnostics = it }
+        )
         ui.action("about", s(R.string.row_about), { s(R.string.row_about_summary) }) { env.openPage(Page.ABOUT) }
         return PageContent(ui.rows)
     }

@@ -66,6 +66,53 @@ internal class SlideshowController(
     private var shownSeq = 0L
     private var shownToken = 0L
 
+    private val diagnostics = SlideshowDiagnostics()
+    private var diagnosticsOn = false
+    private var pictureCount = 0
+
+    private fun diagnosticsTick(gen: Int): Runnable = Runnable {
+        if (gen != generation || !diagnosticsOn) return@Runnable
+        val layer = sharp
+        val buffer = "${view.bufferWidth}x${view.bufferHeight}"
+        diagnostics.renderPath = when {
+            layer == null -> "Standard: drawn at $buffer, the TV enlarges it to the panel"
+            layer.usable -> "Full 4K: ${layer.frameWidth}x${layer.frameHeight} on the video plane (${layer.decoderName ?: "decoder starting"})"
+            else -> "Full 4K failed (${layer.failure ?: "stopped"}); drawn at $buffer"
+        }
+        if (layer != null && layer.lastDecodeMillis > 0) {
+            diagnostics.sharpConvertMillis = layer.lastConvertMillis
+            diagnostics.sharpShowMillis = layer.lastDecodeMillis
+        }
+        if (RefreshCoordinator.isRunning) diagnostics.refresh = "looking for new pictures now"
+        val runtime = Runtime.getRuntime()
+        view.diagnostics = diagnostics.lines(
+            (runtime.totalMemory() - runtime.freeMemory()) / MIB,
+            runtime.maxMemory() / MIB,
+            (SystemClock.uptimeMillis() - startedAtMillis) / 1000
+        )
+        mainHandler.postDelayed(diagnosticsTick(gen), DIAGNOSTICS_MILLIS)
+    }
+
+    private fun startDiagnostics(gen: Int) {
+        diagnosticsOn = settings.showDiagnostics
+        if (!diagnosticsOn) {
+            view.diagnostics = null
+            return
+        }
+        val display = context.getSystemService(android.hardware.display.DisplayManager::class.java)
+            ?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+        val mode = display?.mode
+        val logical = android.graphics.Point().also {
+            @Suppress("DEPRECATION")
+            display?.getRealSize(it)
+        }
+        diagnostics.display = "panel ${mode?.physicalWidth ?: 0}x${mode?.physicalHeight ?: 0} · apps ${logical.x}x${logical.y}"
+        diagnostics.order = settings.orderMode.name.lowercase()
+        diagnostics.intervalSeconds = settings.intervalSeconds
+        diagnostics.streaming = settings.streamOnly
+        mainHandler.post(diagnosticsTick(gen))
+    }
+
     fun start() {
         if (worker != null) return
         generation++
@@ -85,6 +132,7 @@ internal class SlideshowController(
         workerHandler = Handler(thread.looper).also { it.post(advanceTask) }
         RefreshCoordinator.requestRefresh(context) { onRefreshFinished(gen) }
         mainHandler.postDelayed(freshnessTick(gen), DreamFreshness.CHECK_INTERVAL_MILLIS)
+        startDiagnostics(gen)
     }
 
     private fun onRefreshFinished(gen: Int) {
@@ -157,27 +205,38 @@ internal class SlideshowController(
     }
 
     /**
-     * Decodes picture [seq] again at the panel's native size and hands it to [sharp]. Runs on the worker
-     * after the picture was posted; it is dropped if another picture has been shown meanwhile.
+     * Decodes picture [seq] again at the panel's native size and hands it to [sharp] once the screen is
+     * black for it. Runs on the worker after the picture was posted; dropped if another picture is shown
+     * meanwhile. Any failure switches the slideshow back to drawing pictures itself.
      */
     private fun sharpen(gen: Int, seq: Long, file: File, entry: CatalogueEntry) {
         val layer = sharp?.takeIf { it.usable } ?: return
         val place = placement(
             settings.displayMode, entry.widthPx, entry.heightPx, layer.frameWidth, layer.frameHeight, layer.frameWidth
         )
+        val started = SystemClock.uptimeMillis()
         val bitmap = try {
             decode(file, place)
         } catch (error: OutOfMemoryError) {
             Log.w(TAG, "Not enough memory for a native-resolution copy of ${entry.key}", error)
             null
-        } ?: return
+        }
+        diagnostics.sharpDecodeMillis = SystemClock.uptimeMillis() - started
         mainHandler.post {
-            if (gen != generation || shownSeq != seq || !view.covered(shownToken)) {
-                bitmap.recycle()
+            if (gen != generation || shownSeq != seq) {
+                bitmap?.recycle()
+                return@post
+            }
+            if (bitmap == null) {
+                view.sharpFailed()
                 return@post
             }
             val token = shownToken
-            layer.present(bitmap, place.destination) { view.sharpShown(token) }
+            view.whenCovered(
+                token,
+                action = { layer.present(bitmap, place.destination, onShown = { view.sharpShown(token) }, onFailed = { view.sharpFailed() }) },
+                cancelled = { bitmap.recycle() }
+            )
         }
     }
 
@@ -283,6 +342,11 @@ internal class SlideshowController(
                 return@repeat
             }
             val attribution = Attribution.of(entry)
+            if (diagnosticsOn) {
+                diagnostics.saved = library.size
+                diagnostics.showable = candidates.size
+                diagnostics.refresh = catalogue.lastSummary
+            }
             val seq = postFrame(gen, frame, attribution) {
                 commitDisplay(gen, pick.hash, library) { state -> state.copy(cachedOrder = pick.next) }
             }
@@ -330,13 +394,32 @@ internal class SlideshowController(
         val place = placement(
             settings.displayMode, entry.widthPx, entry.heightPx, screenWidth, screenHeight, physicalWidth(screenWidth)
         )
+        val started = SystemClock.uptimeMillis()
         return try {
-            decode(file, place)?.let { Frame(it, place.destination, screenWidth, screenHeight) }
+            decode(file, place)?.let { Frame(it, place.destination, screenWidth, screenHeight) }?.also {
+                if (diagnosticsOn) noteDiagnostics(entry, file, place, SystemClock.uptimeMillis() - started)
+            }
         } catch (error: OutOfMemoryError) {
             Log.w(TAG, "Not enough memory to decode ${entry.key}", error)
             mainHandler.post { view.useLowResolution() }
             null
         }
+    }
+
+    private fun noteDiagnostics(entry: CatalogueEntry, file: File, place: Placement, millis: Long) {
+        val box = place.destination
+        diagnostics.pictureNumber = ++pictureCount
+        diagnostics.title = entry.title.ifBlank { entry.providerId }
+        diagnostics.source = "${entry.sourceLabel} ${entry.providerId}"
+        diagnostics.fileWidth = entry.widthPx
+        diagnostics.fileHeight = entry.heightPx
+        diagnostics.fileBytes = file.length()
+        diagnostics.fit = settings.displayMode.name.lowercase()
+        diagnostics.drawnBox = "${box.width}x${box.height}+${box.left}+${box.top}"
+        diagnostics.frameDecodeMillis = millis
+        diagnostics.sharpDecodeMillis = -1
+        diagnostics.sharpConvertMillis = -1
+        diagnostics.sharpShowMillis = -1
     }
 
     private fun screenSize(): Pair<Int, Int> {
@@ -406,6 +489,8 @@ internal class SlideshowController(
 
     companion object {
         private const val TAG = "CosmosSlideshow"
+        private const val DIAGNOSTICS_MILLIS = 1_000L
+        private const val MIB = 1024L * 1024
         private const val MAX_ATTEMPTS = 3
         private const val EMPTY_RETRY_MILLIS = 20_000L
         private const val FIRST_PICTURE_RETRY_MILLIS = 2_000L

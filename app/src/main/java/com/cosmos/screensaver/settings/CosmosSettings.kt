@@ -31,6 +31,15 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         get() = preferences.enumValue(KEY_CAPTION_SIZE, DEFAULT_CAPTION_SIZE)
         set(value) = preferences.edit().putString(KEY_CAPTION_SIZE, value.name).apply()
 
+    var sharpness: Sharpness
+        get() = preferences.enumValue(KEY_SHARPNESS, DEFAULT_SHARPNESS)
+        set(value) = preferences.edit().putString(KEY_SHARPNESS, value.name).apply()
+
+    /** Shows rendering and library details over the slideshow, for checking what it is doing. */
+    var showDiagnostics: Boolean
+        get() = preferences.getBoolean(KEY_DIAGNOSTICS, false)
+        set(value) = preferences.edit().putBoolean(KEY_DIAGNOSTICS, value).apply()
+
     var quality: QualityPreference
         get() = preferences.enumValue(KEY_QUALITY, DEFAULT_QUALITY)
         set(value) = preferences.edit().putString(KEY_QUALITY, value.name).apply()
@@ -150,6 +159,9 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         // v2: five steps replaced the original four; earlier choices fall back to the new default.
         private const val KEY_CAPTION_SIZE = "caption_size_v2"
         val DEFAULT_CAPTION_SIZE = CaptionSize.MEDIUM
+        private const val KEY_SHARPNESS = "sharpness"
+        val DEFAULT_SHARPNESS = Sharpness.STANDARD
+        private const val KEY_DIAGNOSTICS = "show_diagnostics"
         private const val KEY_QUALITY = "quality"
         private const val KEY_LICENCE_MODE = "licence_mode"
         private const val KEY_STREAM_ONLY = "stream_only"
@@ -177,7 +189,7 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
          */
         private val VIEWING_KEYS = listOf(
             KEY_INTERVAL, KEY_DISPLAY_MODE, KEY_CAPTION_MODE, KEY_CAPTION_SIZE, KEY_QUALITY, KEY_LICENCE_MODE,
-            KEY_STREAM_ONLY, KEY_ORDER_MODE
+            KEY_STREAM_ONLY, KEY_ORDER_MODE, KEY_SHARPNESS, KEY_DIAGNOSTICS
         )
 
         fun collectionFor(enabled: Set<AssetProvider>): CollectionPreset =
