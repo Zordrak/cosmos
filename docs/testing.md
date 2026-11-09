@@ -41,6 +41,11 @@ Run `gradle --no-daemon :app:testDebugUnitTest`. All fixtures are synthetic: han
 | `ImageSelectionTest` | Personal-use and 4K defaults, exact-4K floor, quality tiers, openly-licensed filtering, 4K-else-1080p fallback, and settings fingerprints |
 | `RefreshCoordinatorTest` | Refresh staleness rules, including settings changes |
 | `ArtworkViewportTest`, `SyntheticArtworkGeometryTest`, `DreamSettingsLauncherTest` | Aspect-ratio fitting, the synthetic fixture, and the settings shortcut fallback |
+| `ImagePickerTest`, `StreamQueueTest` | Fair, random and in-order selection: persistence across restarts, weights, starvation bounds, new-arrival priority, tiny pools, streaming leads and failure cooldowns |
+| `UserStateStoreTest`, `LibraryMigrationTest`, `LibraryMaintenanceTest`, `LibraryExplicitCommandsTest`, `BulkCommitTest`, `CacheCompositionTest` | Unreadable-is-not-empty, the cache-to-files migration, favourites protected on every removal path, blocks, aliases, explicit library commands and the cache composition summary |
+| `TrashBinTest`, `CacheTrimmerTest`, `CacheBudgetTest`, `SizeSessionTest`, `SizeCommitTest`, `ByteSizesTest` | Undoable Tidy, Clear and shrink with failures injected at each step, restore rules, eviction order, budget and favourite saturation, preview-only size proposals and byte formatting |
+| `SavingPolicyTest`, `RefreshGateTest`, `DownloadModeSettingsTest`, `RefreshProgressTest`, `SetupHealthTest`, `SetupNoticesTest`, `ScreensaverSelectionTest`, `DreamFreshnessTest`, `IdleTimeTest` | The single saving policy across every trigger, capability states, setup notices, screensaver selection and idle-time read/write outcomes |
+| `CosmosSettingsTest`, `SettingsShellTest`, `PickerModelTest`, `HomeSummariesTest`, `PreviewPlacementTest`, `SelectionSnapshotTest`, `StartupStatusTest`, `LibraryModelTest`, `StorageBarModelTest`, `AsyncImageCacheTest` | Preferences and reset coverage, settings shell and focus, pickers, summary wording, preview mapping, calm-start timing, the library list model, the storage bar and thumbnail caching |
 
 Tests do not contact live services. During development, the parser and the complete admission pipeline were also exercised once against the live ESA/Hubble and ESA/Webb sites in a temporary, uncommitted test (2026-11-09). Both policies matched. The pipeline admitted 4 Observation images with full credits and correctly rejected a Collage.
 ## Physical-device validation
@@ -81,13 +86,26 @@ Still to check by hand, with the remote:
 
 1. Install version 0.2.0 and open Cosmos. Confirm the status shows images downloading and then becoming ready.
 2. **Preview** shows images fitted without cropping. Each image has a readable title, full credit, source, and licence, and the caption alternates corners. Any remote key exits.
-3. Interval, source on/off, **Refresh images now**, and **Clear downloaded images** all work with the D-pad.
+3. Interval, source on/off, **Look for new pictures now**, and **Clear** all work with the D-pad.
 4. Select Cosmos as the screensaver. When idle, the slideshow starts and cross-fades at the chosen interval. The remote dismisses it.
 5. With the network disconnected, the screensaver still plays cached images.
 6. Leave it running for several hours. Check memory and stability and confirm there are no crashes (`adb logcat -s CosmosDream CosmosSlideshow CosmosRefresh`).
 7. Upgrade from 0.1.0 to 0.2.0 using the same signing key, and confirm the screensaver selection is retained.
 
-### Version 0.4.0 — still to check by hand
+### Version 0.5.0 — hand and device checks
+
+Unit tests: 487 pass (`gradle --no-daemon :app:testDebugUnitTest`); lint 0 errors.
+
+Checked over ADB on the Sony TV (D-pad key counts and screenshots; see the plan log for evidence): Home and every topic page; Download new pictures (Automatically, Not on limited data, Paused, and the explicit "Look for new pictures now" override); the Sources page (Off, Less, Normal, More); idle time on "When it starts"; the Saved pictures browser, favourites and blocks; Size, Tidy up and Clear confirmations (Cancel-first); caption sizes; and stream-only.
+
+By eye, on the TV:
+
+1. **Calm start.** Start the screensaver from idle, warm and cold. There is no starfield, wireframe or logo flash; the screen is black, then the first picture fades in.
+2. **Credit size.** From the armchair, Subtle and Detailed credits are readable but not large; Credit size changes them noticeably.
+3. **Focus and readability.** The focused row is obvious, text is readable, the storage bar is understandable, and fast D-pad scrolling in Saved pictures keeps up.
+4. **Android "Clear cache"** (Settings → Apps → Cosmos → Clear cache) leaves saved pictures, favourites and blocks untouched. "Clear data" removes everything and is expected to.
+
+### Version 0.4.0 — superseded by the 0.5.0 list above
 
 1. Native 4K: run `adb shell am start -n com.cosmos.screensaver.debug/com.cosmos.screensaver.screensaver.TestPatternActivity`. The box shows the buffer size. Up close, the left half (alternating rows) and right half (alternating columns) should be crisp 1-pixel lines, not a grey blur. Any key closes it.
 2. Open Cosmos. The settings screen is navigable with the D-pad, and the status pane updates as images arrive from the six sources.

@@ -14,22 +14,26 @@ Cosmos is designed to run entirely on the user's television. It has no backend, 
 - Local image cache and provenance records.
 - No telemetry, tracking, accounts, advertising, or paid features.
 
-## Current state — version 0.4.0
+## Current state — version 0.5.0
 
 Milestone 001 (the DreamService proof of concept) was accepted on a Sony XR-65X90L. The full application is implemented, and its physical-device checks are listed in [testing](docs/testing.md).
 
-- **Screensaver:** a cross-fading slideshow of cached images, drawn at the panel's native 4K through a `SurfaceView`. By default the images fill the screen without distortion, and a faint credit appears in alternating corners and fades after 15 seconds.
-- **Settings (D-pad):** a two-pane screen. The left pane shows the library status. The right pane holds the settings: press OK to change a value, or left/right to step through values.
-  - **Screensaver:** Preview; set as screensaver.
-  - **Display:** picture fit (Fill, Fit, Auto, Original, Stretch); interval (15 s–30 min); credits (Subtle, Detailed, Off).
-  - **Images:** picture quality (4K only by default, up to 8K; 4K else 1080p, 1080p+, 720p+, 480p+, Any); "Only openly licensed images" (off by default).
-  - **Sources:** a collection preset (Everything, Deep space, Picture of the day, NASA only, Custom) and each source on or off.
-  - **Library:** refresh now; clear downloaded images.
-- **Downloads:** run when the app is opened, when the screensaver starts and a refresh is due, when a setting changes, on request, and through a daily job on an unmetered network (Android may defer it in standby). The library holds up to 150 images and 2 GB and always leaves free space of at least the larger of 3 GB and 15%.
+- **Screensaver:** a cross-fading slideshow of saved pictures, drawn at the panel's native 4K through a `SurfaceView`. It starts from plain black and fades the first real picture in; there is no placeholder artwork. By default pictures fill the screen without distortion, and a credit appears in alternating corners and fades after 15 seconds. Credits have a size setting (Small to Extra large).
+- **Picture order:** Fair shuffle (default: recently shown pictures wait, new pictures arrive within a few slides, favourites are shown a little more), Pure random, or In order. Each source can be Off, Less, Normal or More.
+- **Settings (D-pad):** one Home with six topics (Preview, What to show, Slideshow, Saved pictures, When it starts, More). Each topic opens a short page; a live preview, plain wording and a "Needs attention" row replace long lists of options.
+  - **What to show:** collection, sources, picture quality, free-to-reuse only, and **Tidy up**.
+  - **Slideshow:** time per picture, order, picture fit, credits and credit size, with a live preview.
+  - **Saved pictures:** a live storage bar, **Space for pictures** (Automatic or a chosen limit), **Download new pictures** (Automatically, Not on limited data, Paused), **Look for new pictures now**, an image browser (favourite, remove, block), Undo, and Tidy up.
+  - **When it starts:** the TV's idle timeout (set in-app after one grant of the "Modify system settings" toggle) and a shortcut to the TV's screensaver selection.
+  - **More:** blocked pictures, reset viewing choices, clear saved pictures, and About.
+- **Saved pictures are your data, not cache:** the library, favourites, blocked pictures and Undo files live in the app's private files area. Android's **Clear cache** only removes temporary streaming files; **Clear data** or uninstalling removes everything. Favourites are never removed automatically. The only size limits are the one you choose (or Automatic) and a free-space reserve of at least the larger of 3 GB and 15% of storage.
+- **Downloads:** run when the app is opened, when the screensaver starts and a refresh is due, when a setting changes, on request, and through a daily job on an unmetered network (Android may defer it in standby). **Paused** stops all automatic saving; the explicit **Look for new pictures now** is the only command that overrides it. If the TV cannot report limited-data connections, that choice is greyed out with the reason and the app keeps working. When there is no room to save, the screensaver streams pictures online one at a time without keeping them.
+- **Known bad pictures:** a built-in block list and a content filter keep out multi-epoch composites and charts.
 - **4K check:** `adb shell am start -n com.cosmos.screensaver.debug/com.cosmos.screensaver.screensaver.TestPatternActivity` shows a 1-pixel line pattern. Fine, crisp lines mean true 4K output; any key closes it.
-- **Permissions:** `INTERNET` only, with HTTPS restricted to an allow-list of hosts.
+- **Permissions:** `INTERNET`; `ACCESS_NETWORK_STATE` (only to honour "Not on limited data"); `WRITE_SETTINGS` (only to change the TV's idle timeout when you choose to). HTTPS is restricted to an allow-list of hosts.
 
-See [the architecture](docs/architecture.md), [image licensing policy](docs/image-licensing.md), [testing plan](docs/testing.md), and ADRs [0001](docs/decisions/0001-native-dreamservice.md), [0002](docs/decisions/0002-rights-evidence-gate.md), [0003](docs/decisions/0003-esa-sources-and-nasa-exclusion.md) and [0004](docs/decisions/0004-personal-use-defaults.md).
+See [the architecture](docs/architecture.md), [image licensing policy](docs/image-licensing.md), [testing plan](docs/testing.md), and ADRs [0001](docs/decisions/0001-native-dreamservice.md), [0002](docs/decisions/0002-rights-evidence-gate.md), [0003](docs/decisions/0003-esa-sources-and-nasa-exclusion.md), [0004](docs/decisions/0004-personal-use-defaults.md), [0005](docs/decisions/0005-saved-pictures-user-data-and-ordering.md) and [0006](docs/decisions/0006-settings-experience.md).
+
 ## Image rights
 
 The MIT licence in this repository applies to Cosmos source code only. It does not apply to ESA, NASA or any other imagery; displayed images remain under their own licences and credits. No third-party image assets are included in the repository. Cosmos is currently for personal use only. Before any distribution, licence checking must become the default ([ADR 0004](docs/decisions/0004-personal-use-defaults.md)).
