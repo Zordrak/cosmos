@@ -108,6 +108,20 @@ class CatalogueRefresherTest {
     }
 
     @Test
+    fun aPassThatFindsNothingNewSaysTheLibraryHasEverything() {
+        publish(hubble, "heic9901a")
+        publish(webb, "weic9901a")
+
+        val first = refresher().refresh()
+        assertFalse(first.complete)
+        val second = refresher().refresh()
+
+        assertEquals(0, second.admitted)
+        assertTrue(second.complete)
+        assertTrue(store.load().lastSummary.contains("every picture the sources offer"))
+    }
+
+    @Test
     fun streamNextReturnsAnImageWithoutTouchingTheLibrary() {
         publish(hubble, "heic9901a")
         val refresher = refresher(selection = personal)

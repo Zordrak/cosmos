@@ -60,7 +60,9 @@ internal data class RefreshResult(
     val withdrawn: Int,
     val total: Int,
     val errors: List<String>,
-    val space: SpaceStatus = SpaceStatus()
+    val space: SpaceStatus = SpaceStatus(),
+    /** Every source was read to the end without trouble and nothing new turned up. */
+    val complete: Boolean = false
 ) {
     /** The device is short of space (kept for callers that only care about streaming). */
     val lowSpace: Boolean get() = space.devicePressure
@@ -71,6 +73,7 @@ internal data class RefreshResult(
             if (rejected > 0) append(", skipped $rejected")
             if (withdrawn > 0) append(", withdrew $withdrawn")
             append('.')
+            if (complete) append(" That is every picture the sources offer for your current choices.")
             if (space.devicePressure) append(" Not enough free space to keep a library; images are streamed instead.")
             if (space.favouritesPreventSaving) append(" Favourites fill the space for pictures, so no new pictures were saved.")
             if (space.userLimitFull) append(" The space for pictures is full.")
@@ -240,6 +243,7 @@ internal class CatalogueRefresher(
         var space = SpaceStatus()
         var stoppedByPolicy = false
         var interrupted = false
+        var anyPictureFailed = false
 
         withdrawnCount += LibraryMaintenance.screenLocal(store, userState, filesExpected = !indexOnly).removed
 
@@ -391,6 +395,7 @@ internal class CatalogueRefresher(
                         }
                         is Outcome.Failed -> {
                             errors += "${lead.id}: ${outcome.reason}"
+                            anyPictureFailed = true
                             run?.error(ProgressErrorKind.DOWNLOAD, outcome.reason, adapter.label)
                             if (++turn.failures >= limits.maxConsecutiveFailures) {
                                 interrupted = true
@@ -424,7 +429,11 @@ internal class CatalogueRefresher(
         }
 
         val finishedAt = clock()
-        val partial = RefreshResult(admitted, rejected, withdrawnCount, 0, errors.distinct().take(4), space)
+        val distinctErrors = errors.distinct().take(4)
+        // Missing (404) listings are reported but do not leave anything unread; timeouts and failed downloads do.
+        val complete = admitted == 0 && !interrupted && !anyPictureFailed && !stoppedByPolicy && !space.any &&
+            anySourceReached
+        val partial = RefreshResult(admitted, rejected, withdrawnCount, 0, distinctErrors, space, complete)
         val saved = store.update { current ->
             // Only this refresh's own decisions are applied; admissions, removals and blocks made
             // meanwhile (by this refresh or by the user) are already in [current] and are kept.
