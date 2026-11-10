@@ -20,6 +20,7 @@ internal class SlideshowDiagnostics {
     @Volatile var sharpShowMillis = -1L
     @Volatile var saved = -1
     @Volatile var showable = -1
+    @Volatile var indexed = -1
     @Volatile var order = ""
     @Volatile var intervalSeconds = 0
     @Volatile var streaming = false
@@ -43,7 +44,12 @@ internal class SlideshowDiagnostics {
         } else {
             lines += "Picture    none yet"
         }
-        val library = if (saved >= 0) "$saved saved · $showable showable" else "counting…"
+        val library = when {
+            streaming && indexed >= 0 -> "$indexed ready online"
+            streaming -> "online index loading…"
+            saved >= 0 -> "$saved saved · $showable showable"
+            else -> "counting…"
+        }
         lines += "Library    $library · $order · every ${intervalSeconds}s" + if (streaming) " · streaming" else ""
         if (refresh.isNotEmpty()) lines += "Refresh    ${refresh.take(MAX_TITLE)}"
         lines += "Memory     $usedMb / $maxMb MB · up ${upSeconds / 60}:${String.format(Locale.ROOT, "%02d", upSeconds % 60)}"

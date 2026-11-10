@@ -349,4 +349,12 @@ class RefreshProgressTest {
         writer.join()
         assertEquals(0, bad.get())
     }
+
+    @Test
+    fun finishedDownloadReportsSizeTimeAndAverageSpeed() {
+        val done = FinishedDownload(bytes = 4L * 1024 * 1024, millis = 2_000L, endedAtUptime = 0L)
+        assertEquals(2L * 1024 * 1024, done.bytesPerSecond)
+        assertEquals("Online \u00B7 downloaded 4.0 MB in 2.0 s \u00B7 2.0 MB/s", done.describe())
+        assertEquals(10L, FinishedDownload(10L, 0L, 0L).bytesPerSecond)
+    }
 }

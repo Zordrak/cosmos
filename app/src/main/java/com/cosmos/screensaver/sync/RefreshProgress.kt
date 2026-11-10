@@ -204,4 +204,22 @@ internal class ProgressRun internal constructor(private val tracker: ProgressTra
 internal object RefreshProgress {
     val saving: ProgressTracker by lazy { ProgressTracker(ProgressKind.SAVING) }
     val streaming: ProgressTracker by lazy { ProgressTracker(ProgressKind.STREAMING) }
+
+    /** The most recent online download to finish, so a fast one can still be reported after it ends. */
+    @Volatile var lastStreamed: FinishedDownload? = null
+}
+
+/** An online download that completed: [bytes] fetched in [millis], ending at uptime [endedAtUptime]. */
+internal data class FinishedDownload(val bytes: Long, val millis: Long, val endedAtUptime: Long) {
+    /** Average speed in bytes per second; the whole file counts when it took under a millisecond. */
+    val bytesPerSecond: Long get() = if (millis <= 0) bytes else bytes * 1000 / millis
+
+    fun describe(): String = String.format(
+        java.util.Locale.ROOT, "Online \u00B7 downloaded %.1f MB in %.1f s \u00B7 %.1f MB/s",
+        bytes / MIB, millis / 1000.0, bytesPerSecond / MIB
+    )
+
+    private companion object {
+        const val MIB = 1024.0 * 1024.0
+    }
 }

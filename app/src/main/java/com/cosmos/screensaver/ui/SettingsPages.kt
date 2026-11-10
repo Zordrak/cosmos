@@ -195,9 +195,27 @@ internal class SettingsPages(private val env: PageEnv) {
         left.addView(status)
         left.addView(storage)
         left.addView(lastChecked)
-        return {
+        return statusUpdater@{
             val snap = env.snapshot
             val noSources = settings.enabledProviders.isEmpty()
+            val online = if (settings.streamOnly && !noSources) onlineIndex() else null
+            if (online != null) {
+                status.set(
+                    activity.resources.getQuantityString(R.plurals.home_online_count, online.entries.size, online.entries.size),
+                    SettingsColors.ACCENT
+                )
+                storage.set(s(R.string.home_online_storage), SettingsColors.SECONDARY)
+                lastChecked.text = when {
+                    RefreshCoordinator.isRunning -> s(R.string.home_online_indexing)
+                    online.lastAttemptAtEpochMillis > 0 -> activity.getString(
+                        R.string.home_last_refresh,
+                        DateUtils.getRelativeTimeSpanString(online.lastAttemptAtEpochMillis),
+                        online.lastSummary
+                    )
+                    else -> ""
+                }
+                return@statusUpdater
+            }
             when {
                 noSources && !setupNoticeOwnsWarnings -> status.set(s(R.string.home_no_sources), SettingsColors.WARNING)
                 noSources -> status.set("", SettingsColors.ACCENT)
@@ -233,6 +251,18 @@ internal class SettingsPages(private val env: PageEnv) {
     private fun TextView.set(value: String, color: Int) {
         if (text.toString() != value) text = value
         setTextColor(color)
+    }
+
+    private var onlineCache: Pair<Long, com.cosmos.screensaver.catalogue.Catalogue>? = null
+
+    /** The online index used by Play without saving, re-read only when its file changes. */
+    private fun onlineIndex(): com.cosmos.screensaver.catalogue.Catalogue {
+        val store = com.cosmos.screensaver.sync.ImageStreamer.onlineStore(activity)
+        val stamp = java.io.File(activity.filesDir, "online/catalogue.json").lastModified()
+        onlineCache?.takeIf { it.first == stamp }?.let { return it.second }
+        val catalogue = store.load()
+        onlineCache = stamp to catalogue
+        return catalogue
     }
 
     private fun subPageLeft(ui: SettingsUi, left: LinearLayout, title: Int, body: Int?) {

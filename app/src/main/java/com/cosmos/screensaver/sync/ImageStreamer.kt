@@ -152,7 +152,10 @@ internal class ImageStreamer(context: Context) {
             store.imagesDirectory.mkdirs()
             run?.downloading(entry.title, entry.sourceLabel)
             val fetcher = com.cosmos.screensaver.source.HttpsFetcher(userAgent(), tracker.observer)
+            val started = android.os.SystemClock.uptimeMillis()
             val download = fetcher.download(entry.assetUrl, partial, MAX_DOWNLOAD_BYTES)
+            val ended = android.os.SystemClock.uptimeMillis()
+            RefreshProgress.lastStreamed = FinishedDownload(download.byteCount, ended - started, ended)
             run?.checking()
             if (entry.sha256.isNotBlank() && entry.sha256 != download.sha256) {
                 forget(entry, "CHANGED_AT_SOURCE")

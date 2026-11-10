@@ -217,9 +217,13 @@ internal class SlideshowController(
         val downloading = showDownloads && RefreshProgress.streaming.snapshot().let {
             it.active && it.phase == com.cosmos.screensaver.sync.ProgressPhase.DOWNLOADING
         }
+        val finished = if (showDownloads && !downloading) RefreshProgress.lastStreamed?.takeIf {
+            SystemClock.uptimeMillis() - it.endedAtUptime < FINISHED_SHOWN_MILLIS
+        } else null
         view.progressLine = when {
             downloading -> liveProgress(streamingOnly = true)
             late -> liveProgress(streamingOnly = true) ?: context.getString(R.string.slideshow_next_preparing)
+            finished != null -> finished.describe()
             else -> null
         }
         mainHandler.postDelayed(lateTick(gen), STATUS_TICK_MILLIS)
@@ -364,6 +368,10 @@ internal class SlideshowController(
                 }
             }
             sharpen(gen, seq, streamer.file(entry), entry)
+            (ImageStreamer.onlineStore(context).read() as? com.cosmos.screensaver.catalogue.StoreRead.Ok)?.catalogue?.let {
+                diagnostics.indexed = it.entries.size
+                diagnostics.refresh = it.lastSummary
+            }
             // The next picture downloads now, while this one is on screen.
             streamer.prefetch()
             return true
@@ -559,6 +567,7 @@ internal class SlideshowController(
         private const val DIAGNOSTICS_MILLIS = 1_000L
         private const val STATUS_TICK_MILLIS = 1_000L
         private const val LATE_AFTER_MILLIS = 2_500L
+        private const val FINISHED_SHOWN_MILLIS = 5_000L
         private const val MIB = 1024L * 1024
         private const val MAX_ATTEMPTS = 3
         private const val EMPTY_RETRY_MILLIS = 20_000L
