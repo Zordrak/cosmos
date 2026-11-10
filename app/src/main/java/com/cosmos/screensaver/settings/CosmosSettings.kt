@@ -40,6 +40,11 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         get() = preferences.getBoolean(KEY_DIAGNOSTICS, false)
         set(value) = preferences.edit().putBoolean(KEY_DIAGNOSTICS, value).apply()
 
+    /** While playing without saving, shows each picture's download (size, progress, speed) on screen. */
+    var showDownloads: Boolean
+        get() = preferences.getBoolean(KEY_SHOW_DOWNLOADS, false)
+        set(value) = preferences.edit().putBoolean(KEY_SHOW_DOWNLOADS, value).apply()
+
     var quality: QualityPreference
         get() = preferences.enumValue(KEY_QUALITY, DEFAULT_QUALITY)
         set(value) = preferences.edit().putString(KEY_QUALITY, value.name).apply()
@@ -162,6 +167,7 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
         private const val KEY_SHARPNESS = "sharpness"
         val DEFAULT_SHARPNESS = Sharpness.STANDARD
         private const val KEY_DIAGNOSTICS = "show_diagnostics"
+        private const val KEY_SHOW_DOWNLOADS = "show_downloads"
         private const val KEY_QUALITY = "quality"
         private const val KEY_LICENCE_MODE = "licence_mode"
         private const val KEY_STREAM_ONLY = "stream_only"
@@ -189,7 +195,7 @@ internal class CosmosSettings(private val preferences: SharedPreferences) {
          */
         private val VIEWING_KEYS = listOf(
             KEY_INTERVAL, KEY_DISPLAY_MODE, KEY_CAPTION_MODE, KEY_CAPTION_SIZE, KEY_QUALITY, KEY_LICENCE_MODE,
-            KEY_STREAM_ONLY, KEY_ORDER_MODE, KEY_SHARPNESS, KEY_DIAGNOSTICS
+            KEY_STREAM_ONLY, KEY_ORDER_MODE, KEY_SHARPNESS, KEY_DIAGNOSTICS, KEY_SHOW_DOWNLOADS
         )
 
         fun collectionFor(enabled: Set<AssetProvider>): CollectionPreset =

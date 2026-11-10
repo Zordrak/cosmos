@@ -229,7 +229,8 @@ internal object CatalogueJson {
             )
         }
         val fileName = json.getString("fileName")
-        require(fileName.matches(Regex("^[0-9a-f]{64}\\.(jpg|png)$"))) { "Unexpected file name" }
+        // Empty means the picture is known (online index) but no file is kept for it.
+        require(fileName.isEmpty() || fileName.matches(Regex("^[0-9a-f]{64}\\.(jpg|png)$"))) { "Unexpected file name" }
         val credit = json.getString("credit")
         val rightsBasis = json.getString("rightsBasis")
         require(credit.isNotBlank())

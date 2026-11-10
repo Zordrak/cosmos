@@ -27,7 +27,12 @@ import com.cosmos.screensaver.settings.CaptionMode
  * new picture is there, drawing only credits and status. If that layer fails ([sharpFailed]) it
  * reverts to drawing the pictures itself.
  */
-internal class SlideshowView @JvmOverloads constructor(context: Context, private val overlay: Boolean = false) : SurfaceView(context), SurfaceHolder.Callback {
+internal class SlideshowView @JvmOverloads constructor(
+    context: Context,
+    private val overlay: Boolean = false,
+    /** Draw at the panel's physical size (Direct 4K). Unsafe on some TVs; see [nativeSize]. */
+    private val physical: Boolean = false
+) : SurfaceView(context), SurfaceHolder.Callback {
     private class Slide(
         val frame: Frame,
         val attribution: Attribution,
@@ -152,10 +157,11 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
         val point = android.graphics.Point()
         @Suppress("DEPRECATION")
         display?.getRealSize(point)
-        val (w, h) = if (point.x > 0 && point.y > 0) {
-            maxOf(point.x, point.y) to minOf(point.x, point.y)
-        } else {
-            width to height
+        val mode = display?.mode
+        val (w, h) = when {
+            physical && mode != null -> maxOf(mode.physicalWidth, mode.physicalHeight) to minOf(mode.physicalWidth, mode.physicalHeight)
+            point.x > 0 && point.y > 0 -> maxOf(point.x, point.y) to minOf(point.x, point.y)
+            else -> width to height
         }
         return if (w in MIN_EDGE..MAX_WIDTH && h in MIN_EDGE..MAX_HEIGHT) w to h else DEFAULT_SIZE
     }
@@ -370,7 +376,7 @@ internal class SlideshowView @JvmOverloads constructor(context: Context, private
             canvas.drawColor(Color.BLACK)
             renderPictures(canvas, slide, now)
         }
-        progressLine?.let { if (slide != null) drawProgress(canvas, it) }
+        progressLine?.let { drawProgress(canvas, it) }
         diagnostics?.let { drawDiagnostics(canvas, it) }
     }
 

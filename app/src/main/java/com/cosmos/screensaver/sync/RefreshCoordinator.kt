@@ -147,8 +147,9 @@ internal object RefreshCoordinator {
             return false
         }
         val settings = CosmosSettings(appContext)
+        val staleSource = if (live(appContext, store)) ImageStreamer.onlineStore(appContext) else store
         if (reason == RefreshReason.AUTO && !isStale(
-                store.load(), System.currentTimeMillis(), settings.selection, settings.enabledProviders,
+                staleSource.load(), System.currentTimeMillis(), settings.selection, settings.enabledProviders,
                 LibraryStorage.userState(appContext).load()
             )
         ) {
@@ -197,7 +198,8 @@ internal object RefreshCoordinator {
         budgetFor: (usedBytes: Long) -> CacheBudget,
         startIndex: Int = 0,
         progress: ProgressTracker = RefreshProgress.saving,
-        allowSaving: () -> Boolean = { true }
+        allowSaving: () -> Boolean = { true },
+        indexOnly: Boolean = false
     ): CatalogueRefresher {
         val settings = CosmosSettings(context)
         val trash = TrashBin.of(context)
@@ -218,9 +220,17 @@ internal object RefreshCoordinator {
             isStashed = { key, sha -> trash.isStashed(key, sha) || RemovalFence.removedSince(key, sha, startedAt) },
             holdAdmissions = { trash.pending() != null },
             progress = progress,
-            allowSaving = allowSaving
+            allowSaving = allowSaving,
+            indexOnly = indexOnly
         )
     }
+
+    /**
+     * True when pictures are played without saving: chosen in settings, or forced by too little
+     * free space. Refreshes then build the online index instead of the library.
+     */
+    fun live(context: Context, store: CatalogueStore): Boolean =
+        CosmosSettings(context).streamOnly || lowOnSpace(context, store)
 
     /** Bytes available on the device's storage right now, or null when they cannot be read. */
     fun freeBytes(context: Context): Long? =
@@ -229,18 +239,22 @@ internal object RefreshCoordinator {
     private fun runOnce(appContext: Context, store: CatalogueStore, reason: RefreshReason): RefreshResult? {
         val settings = CosmosSettings(appContext)
         val cursor = settings.refreshCursor
+        val indexing = live(appContext, store)
+        val target = if (indexing) ImageStreamer.onlineStore(appContext) else store
         return try {
             createRefresher(
-                appContext, store, LibraryStorage.userState(appContext), { used -> budget(appContext, used) }, cursor,
-                allowSaving = { policyAllows(appContext, reason) }
+                appContext, target, LibraryStorage.userState(appContext),
+                { used -> if (indexing) CacheBudget.fixed(Long.MAX_VALUE) else budget(appContext, used) }, cursor,
+                allowSaving = { policyAllows(appContext, reason) },
+                indexOnly = indexing
             ).refresh().also {
                     settings.refreshCursor = cursor + 1
-                    Log.i(TAG, it.summary)
+                    Log.i(TAG, (if (indexing) "Online index: " else "") + it.summary)
                 }
         } catch (error: Exception) {
             Log.e(TAG, "Refresh failed", error)
             runCatching {
-                store.update {
+                target.update {
                     it.copy(
                         lastAttemptAtEpochMillis = System.currentTimeMillis(),
                         lastSummary = "Refresh failed: ${error.message ?: error.javaClass.simpleName}"

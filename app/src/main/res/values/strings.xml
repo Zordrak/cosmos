@@ -145,7 +145,12 @@
     <string name="sharpness_full">Full 4K</string>
     <string name="sharpness_full_summary">Every pixel of a 4K picture reaches the screen through the TV\'s video player. The TV\'s video picture settings then apply, so colours and sharpness may look different, and pictures change through black.</string>
     <string name="sharpness_unavailable">Not available on this TV: it already shows apps at full resolution, or cannot decode a 4K picture.</string>
+    <string name="sharpness_direct">Direct 4K (test)</string>
+    <string name="sharpness_direct_summary">Draws every pixel straight to the screen, with true colours and cross-fades. Warning: on some TVs, including Sony models with MediaTek chips, this leaves video in other apps shrunk into a corner until the TV is restarted. Try it only to test a TV.</string>
     <string name="row_diagnostics">Diagnostics on screen</string>
+    <string name="row_show_downloads">Show downloads on screen</string>
+    <string name="show_downloads_on_summary">When pictures play without saving, each download is shown in a small line: the picture, its size, progress and speed.</string>
+    <string name="show_downloads_off_summary">Turn on to see each online download (size, progress and speed) in a small line while pictures play without saving.</string>
     <string name="diagnostics_on_summary">The slideshow shows how it is drawing, the current picture and the library in a small panel.</string>
     <string name="diagnostics_off_summary">Turn on to see how the slideshow is drawing, the current picture and the library, in a small panel over the pictures.</string>
     <string name="credit_size_small">Small</string>
@@ -332,7 +337,7 @@
     <string name="row_reset">Reset viewing settings</string>
     <string name="row_reset_summary">Puts what to show and how it is shown back to the defaults.</string>
     <string name="reset_confirm_title">Reset viewing settings?</string>
-    <string name="reset_confirm_message">This puts the collection, sources, picture quality, free-to-reuse choice, time per picture, picture order, picture fit, picture sharpness, credits, credit size, Play without saving and diagnostics back to their defaults. Your saved pictures, favourites, blocked pictures, space limit, download setting and TV start time are not changed.</string>
+    <string name="reset_confirm_message">This puts the collection, sources, picture quality, free-to-reuse choice, time per picture, picture order, picture fit, picture sharpness, credits, credit size, Play without saving, download display and diagnostics back to their defaults. Your saved pictures, favourites, blocked pictures, space limit, download setting and TV start time are not changed.</string>
     <string name="reset_confirm_button">Reset</string>
     <string name="row_about">About Cosmos</string>
     <string name="row_about_summary">Version, privacy and where pictures come from.</string>

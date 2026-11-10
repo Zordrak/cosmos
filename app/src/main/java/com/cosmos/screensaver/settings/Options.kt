@@ -29,8 +29,11 @@ internal enum class CaptionMode { SUBTLE, DETAILED, OFF }
  * How pictures reach a panel larger than the size apps are drawn at.
  * [STANDARD] draws them like any app (as Google's Ambient Mode does) and the TV enlarges them.
  * [FULL_4K] puts every pixel on the TV's video plane, where its video picture processing applies.
+ * [DIRECT_4K] draws the app layer itself at the panel's size: pixel-perfect, but on some TVs
+ * (MediaTek "4K/2K UI coexist", including the Sony X90L and X85J) it leaves other apps' video
+ * mispositioned until the TV restarts. Never the default; offered for TVs where it works.
  */
-internal enum class Sharpness { STANDARD, FULL_4K }
+internal enum class Sharpness { STANDARD, FULL_4K, DIRECT_4K }
 
 /**
  * A multiplier applied to every credit font size. Steps are roughly 30% apart so each one is a

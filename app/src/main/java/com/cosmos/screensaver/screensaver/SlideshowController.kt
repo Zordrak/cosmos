@@ -76,6 +76,8 @@ internal class SlideshowController(
         val layer = sharp
         val buffer = "${view.bufferWidth}x${view.bufferHeight}"
         diagnostics.renderPath = when {
+            layer == null && settings.sharpness == com.cosmos.screensaver.settings.Sharpness.DIRECT_4K ->
+                "Direct 4K: app layer drawn at $buffer (may affect other apps' video on some TVs)"
             layer == null -> "Standard: drawn at $buffer, the TV enlarges it to the panel"
             layer.usable -> "Full 4K: ${layer.frameWidth}x${layer.frameHeight} on the video plane (${layer.decoderName ?: "decoder starting"})"
             else -> "Full 4K failed (${layer.failure ?: "stopped"}); drawn at $buffer"
@@ -127,6 +129,7 @@ internal class SlideshowController(
         startedAtMillis = SystemClock.uptimeMillis()
         startup.start(startedAtMillis, context.getString(R.string.slideshow_preparing))
         mainHandler.postDelayed(statusTick(gen), StartupStatus.DEFAULT_DELAY_MILLIS)
+        showDownloads = settings.showDownloads
         mainHandler.postDelayed(lateTick(gen), STATUS_TICK_MILLIS)
         RefreshJobService.ensureScheduled(context)
         val thread = HandlerThread("cosmos-slideshow").also { it.start() }
@@ -210,9 +213,19 @@ internal class SlideshowController(
         if (gen != generation) return@Runnable
         val since = preparingSince
         val late = pictureOnScreen && since > 0L && SystemClock.uptimeMillis() - since >= LATE_AFTER_MILLIS
-        view.progressLine = if (late) liveProgress(streamingOnly = true) ?: context.getString(R.string.slideshow_next_preparing) else null
+        // With "Show downloads on screen", every online download is shown, early or late.
+        val downloading = showDownloads && RefreshProgress.streaming.snapshot().let {
+            it.active && it.phase == com.cosmos.screensaver.sync.ProgressPhase.DOWNLOADING
+        }
+        view.progressLine = when {
+            downloading -> liveProgress(streamingOnly = true)
+            late -> liveProgress(streamingOnly = true) ?: context.getString(R.string.slideshow_next_preparing)
+            else -> null
+        }
         mainHandler.postDelayed(lateTick(gen), STATUS_TICK_MILLIS)
     }
+
+    private var showDownloads = false
 
     /** Runs on the main thread when the first picture of this session has reached the screen. */
     private fun firstPictureShown() {
@@ -258,6 +271,10 @@ internal class SlideshowController(
             settings.displayMode, entry.widthPx, entry.heightPx, layer.frameWidth, layer.frameHeight, layer.frameWidth
         )
         val started = SystemClock.uptimeMillis()
+        if (diagnosticsOn) {
+            val box = place.destination
+            diagnostics.drawnBox = diagnostics.drawnBox.substringBefore(" · 4K") + " · 4K ${box.width}x${box.height}+${box.left}+${box.top}"
+        }
         val bitmap = try {
             decode(file, place)
         } catch (error: OutOfMemoryError) {
@@ -347,6 +364,8 @@ internal class SlideshowController(
                 }
             }
             sharpen(gen, seq, streamer.file(entry), entry)
+            // The next picture downloads now, while this one is on screen.
+            streamer.prefetch()
             return true
         } finally {
             streamer.discard(entry)

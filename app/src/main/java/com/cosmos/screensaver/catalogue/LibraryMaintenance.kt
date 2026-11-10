@@ -41,7 +41,7 @@ internal object LibraryMaintenance {
      * Applies explicit blocks and the content rules that need only the saved metadata, and drops
      * entries whose file has vanished. Favourites that fail are kept but hidden with the reason.
      */
-    fun screenLocal(store: CatalogueStore, userState: UserStateStore): Report = CatalogueStore.locked {
+    fun screenLocal(store: CatalogueStore, userState: UserStateStore, filesExpected: Boolean = true): Report = CatalogueStore.locked {
         val state = (userState.read() as? UserStateRead.Ok)?.state ?: return@locked Report()
         val catalogue = (store.read() as? StoreRead.Ok)?.catalogue ?: return@locked Report()
         val kept = mutableListOf<CatalogueEntry>()
@@ -52,7 +52,7 @@ internal object LibraryMaintenance {
             val reason = entry.hiddenReason.ifBlank { ContentFilter.check(entry.title).orEmpty() }
             when {
                 state.isBlocked(entry.key, entry.sha256) -> dropped += entry
-                !store.imageFile(entry).isFile && !favourite -> dropped += entry
+                filesExpected && !store.imageFile(entry).isFile && !favourite -> dropped += entry
                 reason.isNotBlank() && !favourite -> dropped += entry
                 reason.isNotBlank() && entry.hiddenReason != reason -> {
                     kept += entry.copy(hiddenReason = reason)
@@ -265,7 +265,7 @@ internal object LibraryMaintenance {
 
     private fun deleteUnreferenced(store: CatalogueStore, dropped: List<CatalogueEntry>, remaining: List<CatalogueEntry>) {
         val used = remaining.map { it.fileName }.toSet()
-        dropped.map { it.fileName }.distinct().filter { it !in used }.forEach { name ->
+        dropped.map { it.fileName }.distinct().filter { it.isNotEmpty() && it !in used }.forEach { name ->
             val file = File(store.imagesDirectory, name)
             if (file.absolutePath !in inFlight) file.delete()
         }

@@ -877,6 +877,29 @@ class CatalogueRefresherTest {
     }
 
     @Test
+    fun theOnlineIndexRecordsQualifyingPicturesWithoutDownloadingThem() {
+        publish(hubble, "heic9901a")
+        publish(hubble, "heic9902a", width = 3000, height = 4000)
+
+        val result = refresher(selection = personal, indexOnly = true).refresh()
+        val entry = store.load().entries.singleOrNull()
+            ?: throw AssertionError("no entry: ${result.summary} rejections=${store.load().rejections}")
+        // Nothing was downloaded: only pages were read.
+        assertTrue(fetcher.requests.none { it.contains("cdn.") })
+        assertEquals("heic9901a", entry.providerId)
+        assertEquals("", entry.fileName)
+        assertEquals("", entry.sha256)
+        assertTrue(entry.assetUrl.isNotBlank())
+        assertTrue(entry.widthPx >= 3840)
+
+        now += 1000
+        refresher(selection = personal, indexOnly = true).refresh()
+
+        // Kept, though it has no file, and not looked up again.
+        assertEquals(listOf("heic9901a"), store.load().entries.map { it.providerId })
+    }
+
+    @Test
     fun aPassCutShortByTimeoutsWithRoomLeftAsksToBeRetriedSoon() {
         publish(hubble, "heic9901a")
         fetcher.offline = true
@@ -1235,7 +1258,8 @@ class CatalogueRefresherTest {
         extraAdapters: List<SourceAdapter> = emptyList(),
         isStashed: (String, String) -> Boolean = { _, _ -> false },
         holdAdmissions: () -> Boolean = { false },
-        progress: ProgressTracker? = null
+        progress: ProgressTracker? = null,
+        indexOnly: Boolean = false
     ) = CatalogueRefresher(
         fetcher = fetcher,
         store = store,
@@ -1251,7 +1275,8 @@ class CatalogueRefresherTest {
         startIndex = startIndex,
         isStashed = isStashed,
         holdAdmissions = holdAdmissions,
-        progress = progress
+        progress = progress,
+        indexOnly = indexOnly
     )
 
     private fun publish(

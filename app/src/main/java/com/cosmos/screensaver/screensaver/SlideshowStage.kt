@@ -20,7 +20,12 @@ internal class SlideshowStage private constructor(val root: View, val view: Slid
 
     companion object {
         fun create(context: Context): SlideshowStage {
-            val wanted = CosmosSettings(context).sharpness == Sharpness.FULL_4K
+            val sharpness = CosmosSettings(context).sharpness
+            if (sharpness == Sharpness.DIRECT_4K) {
+                val view = SlideshowView(context, physical = true)
+                return SlideshowStage(view, view, null)
+            }
+            val wanted = sharpness == Sharpness.FULL_4K
             val size = if (wanted) SharpLayer.nativeSize(context) else null
             if (size == null) {
                 val view = SlideshowView(context)

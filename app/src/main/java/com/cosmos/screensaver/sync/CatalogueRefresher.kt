@@ -111,7 +111,12 @@ internal class CatalogueRefresher(
     /** Where progress is reported (what is downloading, how fast); null reports nothing. */
     private val progress: ProgressTracker? = null,
     /** False once the download mode no longer permits saving; checked before each source and picture. */
-    private val allowSaving: () -> Boolean = { true }
+    private val allowSaving: () -> Boolean = { true },
+    /**
+     * Records each qualifying picture's metadata (page, rights, chosen rendition URL and declared
+     * size) without downloading it. Used for the online index that Play without saving draws from.
+     */
+    private val indexOnly: Boolean = false
 ) {
     data class Limits(
         /**
@@ -236,7 +241,7 @@ internal class CatalogueRefresher(
         var stoppedByPolicy = false
         var interrupted = false
 
-        withdrawnCount += LibraryMaintenance.screenLocal(store, userState).removed
+        withdrawnCount += LibraryMaintenance.screenLocal(store, userState, filesExpected = !indexOnly).removed
 
         val entriesAtStart = store.loadStrict().entries
         val usedAtStart = SelectionSnapshot.physicalBytes(entriesAtStart)
@@ -355,7 +360,7 @@ internal class CatalogueRefresher(
                             is CandidateResult.Skip -> Outcome.Rejected(result.reason)
                             is CandidateResult.Failed -> Outcome.Failed(result.reason)
                             is CandidateResult.Ready -> when (val made = admit(result.candidate, key)) {
-                                is Outcome.Admitted -> commit(made.entry)
+                                is Outcome.Admitted -> if (indexOnly) commitIndexed(made.entry) else commit(made.entry)
                                 else -> made
                             }
                         }
@@ -644,6 +649,14 @@ internal class CatalogueRefresher(
                 is LicenceOutcome.Failed -> return Outcome.Failed(outcome.reason)
             }
 
+            if (indexOnly) {
+                // Recorded from the page alone; the file is fetched (and its size checked) when shown.
+                val width = option.width
+                val height = option.height
+                if (width == null || height == null) return Outcome.Failed("size not declared")
+                return Outcome.Admitted(entryFor(candidate, option, licence, "", 0L, width, height, ""))
+            }
+
             val stored = reuse(existing, option.url)
                 ?: when (val downloaded = download(candidate, key, option, required)) {
                     is Outcome.Stored -> downloaded
@@ -667,32 +680,59 @@ internal class CatalogueRefresher(
             }
 
             return Outcome.Admitted(
-                CatalogueEntry(
-                    provider = candidate.provider,
-                    providerId = candidate.id,
-                    title = candidate.title,
-                    sourceLabel = sourceLabel(candidate),
-                    sourcePageUrl = candidate.pageUrl,
-                    assetUrl = option.url,
-                    credit = candidate.credit.ifBlank { sourceLabel(candidate) },
-                    rightsBasis = licence.basis,
-                    licenceName = licence.name,
-                    licenceUrl = licence.url,
-                    territory = licence.territory,
-                    evidence = licence.evidence,
-                    validatedAtEpochMillis = licence.validatedAt,
-                    policyVersion = licence.policyVersion,
-                    admittedAtEpochMillis = clock(),
-                    sha256 = stored.sha256,
-                    byteCount = stored.byteCount,
-                    widthPx = stored.width,
-                    heightPx = stored.height,
-                    fileName = stored.fileName,
-                    contentPolicy = ContentFilter.POLICY_VERSION
-                )
+                entryFor(candidate, option, licence, stored.sha256, stored.byteCount, stored.width, stored.height, stored.fileName)
             )
         }
         return Outcome.Rejected(lastRejection)
+    }
+
+    private fun entryFor(
+        candidate: Candidate,
+        option: RenditionOption,
+        licence: Licence,
+        sha256: String,
+        byteCount: Long,
+        width: Int,
+        height: Int,
+        fileName: String
+    ) = CatalogueEntry(
+        provider = candidate.provider,
+        providerId = candidate.id,
+        title = candidate.title,
+        sourceLabel = sourceLabel(candidate),
+        sourcePageUrl = candidate.pageUrl,
+        assetUrl = option.url,
+        credit = candidate.credit.ifBlank { sourceLabel(candidate) },
+        rightsBasis = licence.basis,
+        licenceName = licence.name,
+        licenceUrl = licence.url,
+        territory = licence.territory,
+        evidence = licence.evidence,
+        validatedAtEpochMillis = licence.validatedAt,
+        policyVersion = licence.policyVersion,
+        admittedAtEpochMillis = clock(),
+        sha256 = sha256,
+        byteCount = byteCount,
+        widthPx = width,
+        heightPx = height,
+        fileName = fileName,
+        contentPolicy = ContentFilter.POLICY_VERSION
+    )
+
+    /** Saves a picture recorded without its file (the online index): no file to claim or clean up. */
+    private fun commitIndexed(entry: CatalogueEntry): Outcome = CatalogueStore.locked {
+        try {
+            if (userState.loadStrict().isBlocked(entry.key, null)) return@locked Outcome.Rejected(LibraryMaintenance.BLOCKED)
+            store.update { current ->
+                current.copy(
+                    entries = current.entries.filterNot { it.key == entry.key } + entry,
+                    rejections = current.rejections - entry.key
+                )
+            }
+            Outcome.Admitted(entry)
+        } catch (error: IOException) {
+            Outcome.Failed("unable to record picture (${error.describe()})")
+        }
     }
 
     /**

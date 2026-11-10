@@ -472,11 +472,21 @@ internal class SettingsPages(private val env: PageEnv) {
     /** Whether this TV can show pictures at full panel resolution on its video plane; checked once. */
     private val fullSharpnessSupported by lazy { SharpLayer.nativeSize(activity) != null }
 
-    private fun sharpnessLabel(value: Sharpness) =
-        s(if (value == Sharpness.FULL_4K) R.string.sharpness_full else R.string.sharpness_standard)
+    private fun sharpnessLabel(value: Sharpness) = s(
+        when (value) {
+            Sharpness.STANDARD -> R.string.sharpness_standard
+            Sharpness.FULL_4K -> R.string.sharpness_full
+            Sharpness.DIRECT_4K -> R.string.sharpness_direct
+        }
+    )
 
-    private fun sharpnessSummary(value: Sharpness) =
-        s(if (value == Sharpness.FULL_4K) R.string.sharpness_full_summary else R.string.sharpness_standard_summary)
+    private fun sharpnessSummary(value: Sharpness) = s(
+        when (value) {
+            Sharpness.STANDARD -> R.string.sharpness_standard_summary
+            Sharpness.FULL_4K -> R.string.sharpness_full_summary
+            Sharpness.DIRECT_4K -> R.string.sharpness_direct_summary
+        }
+    )
 
     private fun savedPictures(left: LinearLayout): PageContent {
         val ui = SettingsUi(activity)
@@ -551,6 +561,12 @@ internal class SettingsPages(private val env: PageEnv) {
             summary = { s(if (it) R.string.stream_only_on_summary else R.string.stream_only_off_summary) },
             get = { settings.streamOnly },
             set = { settings.streamOnly = it }
+        )
+        ui.switch(
+            "show_downloads", s(R.string.row_show_downloads),
+            summary = { s(if (it) R.string.show_downloads_on_summary else R.string.show_downloads_off_summary) },
+            get = { settings.showDownloads },
+            set = { settings.showDownloads = it }
         )
         ui.action(
             "clear", s(R.string.row_clear), { s(R.string.row_clear_summary) },
