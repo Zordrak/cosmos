@@ -45,7 +45,7 @@ internal class SlideshowDiagnostics {
             lines += "Picture    none yet"
         }
         val library = when {
-            streaming && indexed >= 0 -> "$indexed ready online"
+            streaming && indexed >= 0 -> "$indexed found online"
             streaming -> "online index loading…"
             saved >= 0 -> "$saved saved · $showable showable"
             else -> "counting…"

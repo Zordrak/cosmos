@@ -107,7 +107,7 @@ By eye, on the TV:
 2. **Credit size.** From the armchair, Subtle and Detailed credits are readable but not large; Credit size changes them noticeably.
 3. **Focus and readability.** The focused row is obvious, text is readable, the storage bar is understandable, and fast D-pad scrolling in Saved pictures keeps up.
 4. **Android "Clear cache"** (Settings → Apps → Cosmos → Clear cache) leaves saved pictures, favourites and blocks untouched. "Clear data" removes everything and is expected to.
-5. **Play without saving** (55-inch, 2026-11-10, checked over adb): the index filled with no image downloads (47 pictures within minutes). The first picture appeared in about 2 seconds, and each next picture was prefetched (prepared in about 250 ms, on time). With **Show downloads on screen**, "Online · downloaded 4.6 MB in 1.9 s · 2.4 MB/s" appeared top-right after the prefetch. Diagnostics read "47 ready online". Subtle credits faded with no dark shadow left behind.
+5. **Play without saving** (55-inch, 2026-11-10, checked over adb): the index filled with no image downloads (47 pictures within minutes). The first picture appeared in about 2 seconds, and each next picture was prefetched (prepared in about 250 ms, on time). With **Show downloads on screen**, "Online · downloaded 4.6 MB in 1.9 s · 2.4 MB/s" appeared top-right after the prefetch. Diagnostics read "47 found online". Subtle credits faded with no dark shadow left behind.
 
 ### Version 0.4.0 — superseded by the 0.5.0 list above
 

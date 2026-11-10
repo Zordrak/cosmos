@@ -33,11 +33,11 @@
         <item quantity="other">%d pictures ready to show</item>
     </plurals>
     <plurals name="home_online_count">
-        <item quantity="one">%d picture ready to play online</item>
-        <item quantity="other">%d pictures ready to play online</item>
+        <item quantity="one">%d picture found online</item>
+        <item quantity="other">%d pictures found online</item>
     </plurals>
-    <string name="home_online_storage">Playing online: each picture downloads as it plays and is not kept</string>
-    <string name="home_online_indexing">Indexing pictures to play online…</string>
+    <string name="home_online_storage">Nothing is saved: each picture downloads just before it is shown and is deleted afterwards</string>
+    <string name="home_online_indexing">Finding more pictures online…</string>
 
     <string name="home_preview">Preview screensaver</string>
     <string name="home_preview_summary">Watch the slideshow now. Press any button to stop.</string>
